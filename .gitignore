@@ -1,0 +1,7 @@
+node_modules/
+.audit-out/
+.audit-cache/
+scratch/
+.DS_Store
+*.log
+npm-debug.log*

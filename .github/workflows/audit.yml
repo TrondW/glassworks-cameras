@@ -1,0 +1,70 @@
+name: Camera Audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Python Pillow (plate compositor)
+        run: python3 -m pip install --quiet pillow
+
+      - name: Locate Chromium / Chrome
+        run: |
+          if command -v google-chrome >/dev/null 2>&1; then
+            echo "CHROME_PATH=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          elif command -v chromium >/dev/null 2>&1; then
+            echo "CHROME_PATH=$(command -v chromium)" >> "$GITHUB_ENV"
+          elif command -v chromium-browser >/dev/null 2>&1; then
+            echo "CHROME_PATH=$(command -v chromium-browser)" >> "$GITHUB_ENV"
+          else
+            sudo apt-get update && sudo apt-get install -y chromium-browser
+            echo "CHROME_PATH=$(command -v chromium-browser)" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run full quick machine audit (all cameras)
+        env:
+          CI: "true"
+        run: npm run audit:quick
+
+      - name: Render 5-plate Evidence Packs for changed cameras (PR)
+        if: github.event_name == 'pull_request'
+        env:
+          CI: "true"
+        run: |
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '^src/cameras/[^/]+/' | cut -d/ -f3 | sort -u || true)
+          if [ -n "$CHANGED" ]; then
+            for cam in $CHANGED; do
+              if [ -f "src/cameras/$cam/index.js" ]; then
+                echo "::group::Rendering Evidence Pack for $cam"
+                npm run audit -- --camera "$cam" --out ".audit-out/$cam"
+                echo "::endgroup::"
+              fi
+            done
+          fi
+
+      - name: Upload Evidence Pack artifacts
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: camera-evidence-packs
+          path: .audit-out/**/*.png
+          if-no-files-found: ignore

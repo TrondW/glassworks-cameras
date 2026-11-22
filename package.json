@@ -1,0 +1,55 @@
+{
+  "name": "glassworks-cameras",
+  "version": "0.1.0",
+  "description": "Museum-grade, 100% procedural Three.js 3D film camera & lens models with exact optical math, operational interiors, automated WebGL auditing, and cross-agent authoring skills.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./cameras": "./src/cameras.js",
+    "./formats": "./src/formats.js",
+    "./shutters": "./src/shutters.js",
+    "./optics": "./src/optics.js",
+    "./lib/*": "./src/lib/*"
+  },
+  "files": [
+    "src",
+    "docs",
+    "skills",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "audit": "node scripts/camera-audit.mjs",
+    "audit:all": "node scripts/camera-audit.mjs --all",
+    "audit:quick": "node scripts/camera-audit.mjs --all --quick"
+  },
+  "keywords": [
+    "threejs",
+    "webgl",
+    "3d",
+    "procedural-modeling",
+    "cameras",
+    "analog-photography",
+    "optics",
+    "cad",
+    "glassworks",
+    "agent-skills"
+  ],
+  "author": "Trond Wuellner",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TrondW/glassworks-cameras.git"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "peerDependencies": {
+    "three": ">=0.180.0"
+  },
+  "devDependencies": {
+    "three": "^0.187.0"
+  }
+}

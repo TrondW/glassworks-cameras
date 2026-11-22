@@ -1,0 +1,43 @@
+name: Camera Request / Claim
+description: Propose a new historic film camera model or claim one to build
+title: "[Camera] "
+labels: ["camera-proposal"]
+body:
+  - type: input
+    id: model
+    attributes:
+      label: Exact Camera Model, Year & Finish
+      description: Lock ONE specific variant (e.g., "1982 Nikon FM2n, Satin Chrome" — never mix sibling variants).
+      placeholder: "e.g., 1971 Pentax Spotmatic SP II (Chrome)"
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: Film Format
+      options:
+        - "135 (35mm, 24×36)"
+        - "120 Medium Format (6×6 / 6×7 / 6×4.5)"
+        - "Large Format (4×5 / 8×10)"
+        - "Other"
+    validations:
+      required: true
+  - type: textarea
+    id: lenses
+    attributes:
+      label: Proposed Lens Collection
+      description: List the core lens mount and iconic period lenses to include.
+      placeholder: "e.g., M42 Takumar 28mm f/3.5, 35mm f/2, 50mm f/1.4, 85mm f/1.8, 135mm f/2.5"
+    validations:
+      required: true
+  - type: textarea
+    id: mechanics
+    attributes:
+      label: Signature Mechanics & Optical Features
+      description: What makes this camera mechanically interesting as a teaching instrument? (shutter type, finder, film path, interlocks, movements)
+  - type: checkboxes
+    id: claim
+    attributes:
+      label: Contribution Status
+      options:
+        - label: I plan to build this camera myself (following `docs/PLAYBOOK.md` and `skills/camera-builder/SKILL.md`)
