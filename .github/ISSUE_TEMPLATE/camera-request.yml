@@ -1,7 +1,7 @@
 name: Camera Request / Claim
 description: Propose a new historic film camera model or claim one to build
 title: "[Camera] "
-labels: ["camera-proposal"]
+labels: ["enhancement"]
 body:
   - type: input
     id: model
