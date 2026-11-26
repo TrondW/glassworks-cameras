@@ -1470,7 +1470,7 @@ export function createCameraF3({ lens }) {
     }
     body.dial.rotation.y = st.dial;
     body.selfTimerLever.rotation.y = -0.52 * (st.selfTimerK || 0);
-    body.lever.rotation.y = -st.lever;
+    body.lever.rotation.y = st.lever;
     body.powerCollar.rotation.y = 0.45 * (st.powerK || 0);
     body.multExpLever.rotation.y = -0.52 * (st.multExpK || 0);
     body.release.position.y = B.deck + 2.8 - 1.5 * st.press;

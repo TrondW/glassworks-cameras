@@ -24,7 +24,7 @@
 | :--- | :--- | :---: | :---: | :---: | :--- | :--- |
 | Shutter Speed / ASA Dial | Top `+X` | +41.4 | 42.1 | -13.5 | `r = 10.6, h = 6.7`, `n = 48` (`segs = 384`) | Rotates across `B, 1..1000` (`60X` orange, `B` green, `ASA` window); red index triangle on silver deck at `X = +27.0` |
 | Shutter Release + "Cocked" Dot | Top `+X` | +53.6 | 42.1 | -20.5 | collar `r = 4.5, h = 3.5`; chrome button `r = 3.7, h = 7.5` | Depresses `-1.6 mm` on fire; tiny cocked dot at `(+57.6, 42.1, -21.2)` |
-| Rapid-Wind Lever + Counter | Top `+X` | +66.2 | 42.1 | -11.5 | black counter drum `r = 9.8, h = 6.0` w/ red window; swept silver arm + sculpted black rear thumb tip | `155°` wind stroke (`-st.lever`) |
+| Rapid-Wind Lever + Counter | Top `+X` | +66.2 | 42.1 | -11.5 | black counter drum `r = 9.8, h = 6.0` w/ red window; swept silver arm + sculpted black rear thumb tip | `155°` wind stroke (`+st.lever`, CCW outward right) |
 | Film Rewind Knob & Crank | Top `-X` | -41.2 | 42.1 | -11.5 | conical black base `r = 12.2, h = 2.2`, smooth black drum `r = 9.7, h = 5.3` (green `R` + arrow), flush straight silver crank bar | Lifts `+11.0 mm` & unfolds when `doorK = 1` |
 | Strap Eyelets & D-Rings | `±X` | `-53.2 / +83.0` | +34.2 | -16.5 | silver posts + triangular chrome D-rings hanging to `Y = +23.0` | Static |
 | Rear Eyepiece | Back | 0.0 | +37.6 | +5.2 | `17.6 × 13.4 mm` black rubber-rimmed square frame | Upright laterally-correct pentaprism finder (`eyePose()`) |

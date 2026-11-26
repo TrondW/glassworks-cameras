@@ -1480,7 +1480,7 @@ export function createCameraOM1({ lens }) {
     }
     // Iconic OM-1 concentric lens-mount shutter speed ring rotates around -Z!
     body.shutterRing.rotation.z = st.dial;
-    body.lever.rotation.y = -st.lever;
+    body.lever.rotation.y = st.lever;
     body.release.position.y = B.deck - 1.6 * st.press;
     // Animatable OM-1 body controls (meter switch, ASA dial, R clutch, MLU knob, FP/X sync, self-timer, through-mount focusing screen!)
     body.meterSwitch.rotation.y = -0.68 * (st.meterSwitch || 0);

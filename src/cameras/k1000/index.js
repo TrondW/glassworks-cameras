@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { INK, PAINT_BG } from '../../lib/engrave.js';
 import { addScrew, radialT, rbox, revolve, rrPath, slab } from '../../lib/geometry.js';
 import { MatLib, baseMaterials } from '../../lib/materials.js';
-import { Kit, mergeStaticRigid, prep } from '../../lib/mesh.js';
+import { Kit, fastMerge, mergeStaticRigid, prep } from '../../lib/mesh.js';
 import { buildHead, buildTripod } from '../../lib/rig.js';
 import { beadBlastMaps, vulcaniteMaps } from '../../lib/textures.js';
 import { DEG, FONT, T, TAU, easeInOut, lerp } from '../../lib/util.js';
@@ -51,38 +51,38 @@ function arcText(g, str, cx, cy, R, a, size, color, weight = 600, inward = false
 
 // ───────── SMC Pentax-M Compact K-Mount Lens Definitions & Cutaway Prescriptions ─────────
 const LENS_DEFS = {
-  'k-28-2.8':  { L: 31.5, focusPitch: 52 * DEG, blades: 5, rFront: 28.4, thread: 24.5, glassR: 14.6, rFocus: 30.8, rAp: 30.2, rMount: 30.5, funnelPad: 1.6, serial: '7142815', profile: 'compact',  hoodStyle: 'screw', hoodLen: 14.0 },
-  'k-35-2':    { L: 42.0, focusPitch: 40 * DEG, blades: 6, rFront: 28.4, thread: 24.5, glassR: 16.8, rFocus: 31.6, rAp: 30.2, rMount: 30.5, funnelPad: 1.2, serial: '7483029', profile: 'stepped',  hoodStyle: 'screw', hoodLen: 17.0 },
-  'k-50-2':    { L: 31.0, focusPitch: 31 * DEG, blades: 6, rFront: 27.8, thread: 24.5, glassR: 13.0, rFocus: 30.8, rAp: 30.2, rMount: 30.5, funnelPad: 3.0, serial: '8251980', profile: 'standard', hoodStyle: 'screw', hoodLen: 18.0 },
-  'k-50-1.7':  { L: 31.5, focusPitch: 31 * DEG, blades: 6, rFront: 28.6, thread: 24.5, glassR: 17.4, rFocus: 31.2, rAp: 30.2, rMount: 30.5, funnelPad: 0.6, serial: '7910442', profile: 'fast50',   hoodStyle: 'screw', hoodLen: 18.0 },
-  'k-85-2':    { L: 46.0, focusPitch: 24 * DEG, blades: 6, rFront: 29.6, thread: 24.5, glassR: 19.6, rFocus: 32.0, rAp: 30.4, rMount: 30.5, funnelPad: 0.4, serial: '6835291', profile: 'portrait', hoodStyle: 'screw', hoodLen: 26.0 },
-  'k-135-3.5': { L: 66.0, focusPitch: 17 * DEG, blades: 6, rFront: 28.4, thread: 24.5, glassR: 19.2, rFocus: 31.2, rAp: 30.4, rMount: 30.5, funnelPad: 0.5, serial: '7209468', profile: 'tele',     builtInHood: true, hoodStyle: 'slide', hoodLen: 30.0, hoodSlide: 28.0 },
+  'k-28-2.8':  { L: 31.5, focusPitch: 52 * DEG, blades: 5, zfIris: 0.435, rFront: 28.4, thread: 24.5, glassR: 14.6, rFocus: 30.8, rAp: 30.2, rMount: 30.5, funnelPad: 1.6, serial: '7142815', profile: 'compact',  hoodStyle: 'screw', hoodLen: 14.0 },
+  'k-35-2':    { L: 42.0, focusPitch: 40 * DEG, blades: 6, zfIris: 0.435, rFront: 28.4, thread: 24.5, glassR: 16.8, rFocus: 31.6, rAp: 30.2, rMount: 30.5, funnelPad: 1.2, serial: '7483029', profile: 'stepped',  hoodStyle: 'screw', hoodLen: 17.0 },
+  'k-50-2':    { L: 31.0, focusPitch: 31 * DEG, blades: 6, zfIris: 0.415, rFront: 27.8, thread: 24.5, glassR: 13.0, rFocus: 30.8, rAp: 30.2, rMount: 30.5, funnelPad: 3.0, serial: '8251980', profile: 'standard', hoodStyle: 'screw', hoodLen: 18.0 },
+  'k-50-1.7':  { L: 31.5, focusPitch: 31 * DEG, blades: 6, zfIris: 0.500, rFront: 28.6, thread: 24.5, glassR: 17.4, rFocus: 31.2, rAp: 30.2, rMount: 30.5, funnelPad: 0.6, serial: '7910442', profile: 'fast50',   hoodStyle: 'screw', hoodLen: 18.0 },
+  'k-85-2':    { L: 46.0, focusPitch: 24 * DEG, blades: 6, zfIris: 0.560, rFront: 29.6, thread: 24.5, glassR: 19.6, rFocus: 32.0, rAp: 30.4, rMount: 30.5, funnelPad: 0.4, serial: '6835291', profile: 'portrait', hoodStyle: 'screw', hoodLen: 26.0 },
+  'k-135-3.5': { L: 66.0, focusPitch: 17 * DEG, blades: 6, zfIris: 0.550, rFront: 28.4, thread: 24.5, glassR: 19.2, rFocus: 31.2, rAp: 30.4, rMount: 30.5, funnelPad: 0.5, serial: '7209468', profile: 'tele',     builtInHood: true, hoodStyle: 'slide', hoodLen: 30.0, hoodSlide: 28.0 },
 };
 
 const K1000_OPTICS = {
   'k-28-2.8': [
-    [0.09, 0.94, 2.8, 1.5, -1.0], [0.24, 0.80, 2.2, 2.4, -1.2], [0.39, 0.70, 3.4, 1.7, 3.6],
-    [0.56, 0.62, 1.8, -1.6, -4.4], [0.68, 0.68, 3.2, -4.4, 1.9], [0.82, 0.74, 2.4, 3.0, -2.8], [0.94, 0.78, 2.2, -2.6, 3.8],
+    [0.065, 0.94, 1.8,  7.5, -8.5], [0.195, 0.80, 1.5,  8.0, -7.5], [0.310, 0.70, 1.7,  6.5,  9.5],
+    [0.575, 0.62, 1.4, -8.0, -9.5], [0.695, 0.68, 1.7, -9.0,  7.0], [0.825, 0.74, 1.6,  7.5, -8.5], [0.945, 0.78, 1.5, -7.5,  9.0],
   ],
   'k-35-2': [
-    [0.08, 0.94, 3.0, 1.8, -2.2], [0.22, 0.84, 3.2, 1.9, -2.5], [0.38, 0.72, 2.0, 2.2, -1.6],
-    [0.56, 0.66, 1.8, -1.6, 3.2], [0.68, 0.74, 3.6, 3.2, -2.0], [0.82, 0.80, 2.6, 2.8, -3.4], [0.94, 0.84, 2.6, 3.2, -2.8],
+    [0.065, 0.94, 2.6,  5.8, -6.8], [0.200, 0.84, 2.6,  6.0, -6.8], [0.325, 0.72, 1.9,  6.5, -6.5],
+    [0.560, 0.66, 1.8, -7.0,  7.5], [0.690, 0.74, 2.8,  7.0, -6.0], [0.825, 0.80, 2.2,  6.5, -7.8], [0.945, 0.84, 2.2,  7.0, -7.2],
   ],
   'k-50-2': [
-    [0.12, 0.96, 3.2, 2.0, -3.8], [0.32, 0.84, 3.0, 1.7, -1.6], [0.58, 0.76, 1.8, -1.5, 3.4],
-    [0.74, 0.86, 3.4, 3.4, -2.2], [0.91, 0.90, 2.8, 2.8, -3.4],
+    [0.090, 0.96, 2.4,  5.2, -7.5], [0.255, 0.84, 2.1,  5.5, -6.5], [0.590, 0.76, 1.7, -6.5,  7.5],
+    [0.755, 0.86, 2.4,  6.8, -6.0], [0.925, 0.90, 2.1,  6.5, -7.5],
   ],
   'k-50-1.7': [
-    [0.10, 0.96, 3.6, 2.0, -3.6], [0.27, 0.86, 3.2, 1.8, -2.4], [0.43, 0.74, 1.8, 3.0, -1.4],
-    [0.62, 0.74, 1.8, -1.45, 3.2], [0.74, 0.84, 3.8, 3.2, -2.0], [0.92, 0.88, 2.8, 3.0, -3.2],
+    [0.075, 0.96, 2.3,  7.0, -8.5], [0.230, 0.86, 2.1,  7.0, -8.0], [0.370, 0.74, 1.6,  8.5, -7.5],
+    [0.650, 0.74, 1.6, -7.5,  8.5], [0.785, 0.84, 2.3,  8.0, -7.0], [0.935, 0.88, 2.0,  7.8, -8.2],
   ],
   'k-85-2': [
-    [0.09, 0.96, 4.4, 1.9, -3.6], [0.28, 0.86, 3.6, 1.8, -2.6], [0.46, 0.74, 2.0, -2.2, 1.7],
-    [0.68, 0.78, 3.8, 3.2, -2.2], [0.90, 0.84, 3.0, 2.8, -3.4],
+    [0.085, 0.96, 3.8,  4.8, -7.0], [0.265, 0.86, 3.2,  5.2, -6.8], [0.435, 0.74, 2.0, -6.8,  6.2],
+    [0.700, 0.78, 3.4,  6.5, -5.8], [0.905, 0.84, 2.8,  6.5, -7.2],
   ],
   'k-135-3.5': [
-    [0.08, 0.96, 4.6, 2.0, -4.2], [0.24, 0.86, 2.6, -2.6, 2.0], [0.42, 0.74, 3.6, 2.6, -3.0],
-    [0.68, 0.68, 2.4, -2.2, 2.8], [0.88, 0.64, 2.8, 3.0, -2.8],
+    [0.080, 0.96, 4.4,  4.4, -7.5], [0.240, 0.86, 2.6, -7.0,  6.2], [0.420, 0.74, 3.4,  5.6, -6.4],
+    [0.680, 0.68, 2.4, -6.6,  7.0], [0.880, 0.64, 2.8,  6.4, -6.2],
   ],
 };
 
@@ -893,6 +893,92 @@ function buildBody(lib, hov) {
   };
 }
 
+// ───────── Physical 5/6-Blade Tangent-Polygon Iris Geometry (SMC Pentax-M Diaphragm) ─────────
+const _k1000IrisCache = new Map();
+function k1000IrisSpec(def) {
+  const n = def.blades || 6;
+  const rOut = def.rFront - 2.2;
+  // Cap rMax <= 0.51 * rOut so every 5/6-blade prime stays 100% light-tight around the outer rim at every f-stop
+  const rMax = Math.min(def.glassR * 0.90, rOut * 0.51);
+  const rFixed = rMax + 0.35;
+  const rPlateOut = rOut - 0.15;
+  const rPin = Math.min(rOut - 2.6, Math.max(rMax + 4.4, (rMax + rOut) * 0.58));
+  const rMin = Math.max(0.85, rMax * 0.072);
+  return { n, rPin, rOut, rPlateOut, rMin, rMax, rFixed };
+}
+
+function buildK1000LeafGeo(spec) {
+  const key = `${spec.n}|${spec.rPin.toFixed(2)}|${spec.rOut.toFixed(2)}|${spec.rMin.toFixed(2)}|${spec.rMax.toFixed(2)}`;
+  if (_k1000IrisCache.has(key)) return _k1000IrisCache.get(key);
+  const cols = 48;
+  const minChord = Math.sqrt(Math.max(1, spec.rPin * spec.rPin - spec.rMax * spec.rMax))
+    + Math.sqrt(Math.max(1, spec.rOut * spec.rOut - spec.rMax * spec.rMax));
+  const xMin = -(minChord - 0.9);
+  const xSpan = (1.3 - xMin);
+  const xs = Array.from({ length: cols }, (_, i) => xMin + (xSpan * i) / (cols - 1));
+  const y0s = xs.map(() => 0);
+  const yMaxBound = Math.max(8, spec.rOut * 0.56);
+  const y1s = xs.map(() => yMaxBound);
+  for (let k = 0; k <= 28; k++) {
+    const r = spec.rMin + ((spec.rMax - spec.rMin) * k) / 28;
+    const b = -Math.asin(Math.min(0.96, r / spec.rPin));
+    const c = Math.cos(b), s = Math.sin(b);
+    for (let j = 0; j < cols; j++) {
+      const x = xs[j];
+      for (let y = 0; y <= yMaxBound; y += 0.12) {
+        if (Math.hypot(spec.rPin + c * x - s * y, s * x + c * y) > spec.rOut) {
+          y1s[j] = Math.min(y1s[j], Math.max(0, y - 0.12));
+          break;
+        }
+      }
+    }
+  }
+  const wB = 0.30, tipThresh = 0.38;
+  const vCount = cols * 4;
+  const pos = new Float32Array(vCount * 3);
+  const nor = new Float32Array(vCount * 3);
+  const uv = new Float32Array(vCount * 2);
+  const wr = new Float32Array(vCount);
+  for (let j = 0; j < cols; j++) {
+    const x = xs[j], lo = y0s[j], hi = y1s[j], h = hi - lo, mid = (lo + hi) * 0.5;
+    const tipW = h < tipThresh ? 1 : 0;
+    const rowsY = [lo, Math.min(mid - 0.01, lo + wB), Math.max(mid + 0.01, hi - wB), hi];
+    const rowsW = [1, tipW, tipW, 1];
+    for (let r = 0; r < 4; r++) {
+      const vi = j * 4 + r;
+      pos[vi * 3] = x; pos[vi * 3 + 1] = rowsY[r]; pos[vi * 3 + 2] = 0;
+      nor[vi * 3] = 0; nor[vi * 3 + 1] = 0; nor[vi * 3 + 2] = -1;
+      uv[vi * 2] = (x - xMin) / Math.max(1e-3, xSpan); uv[vi * 2 + 1] = rowsY[r] / Math.max(1, yMaxBound);
+      wr[vi] = rowsW[r];
+    }
+  }
+  const idx = [];
+  for (let j = 0; j < cols - 1; j++) {
+    if (y1s[j] - y0s[j] <= 1e-3 && y1s[j + 1] - y0s[j + 1] <= 1e-3) continue;
+    for (let r = 0; r < 3; r++) {
+      const b0 = j * 4 + r, b1 = (j + 1) * 4 + r;
+      idx.push(b0, b1 + 1, b1, b0, b0 + 1, b1 + 1);
+    }
+  }
+  const leaf = new THREE.BufferGeometry();
+  leaf.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  leaf.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  leaf.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  leaf.setAttribute('wear', new THREE.BufferAttribute(wr, 1));
+  leaf.setIndex(idx);
+  leaf.applyMatrix4(new THREE.Matrix4().makeRotationX(0.055));
+  prep(leaf);
+  const pin = prep(new THREE.CylinderGeometry(0.6, 0.6, 0.65, 10).rotateX(Math.PI / 2));
+  pin.attributes.wear.array.fill(0.35);
+  const bladeGeo = fastMerge([leaf, pin]);
+  bladeGeo.computeBoundingSphere();
+  const fixedGeo = prep(new THREE.RingGeometry(spec.rFixed, spec.rPlateOut, 64, 1));
+  fixedGeo.rotateY(Math.PI);
+  const pair = { bladeGeo, fixedGeo };
+  _k1000IrisCache.set(key, pair);
+  return pair;
+}
+
 // ───────── SMC Pentax-M Compact K-Mount Lens Builder ─────────
 function buildLens(lib, lens, hov) {
   const def = lensDef(lens), group = new THREE.Group();
@@ -900,14 +986,17 @@ function buildLens(lib, lens, hov) {
   const atlas = lensAtlas(lens);
   const eng = (h) => lib.prepare(new THREE.MeshPhysicalMaterial({ name: `k1000LensEng_${lens.id}`, color: 0xffffff, map: atlas, metalness: 0.12, roughness: 0.42 }), { hover: h, wear: 'paint' });
   const oSpec = lensOpticsFor(lens);
-  const lensGlassU = {
-    blades: def.blades || 6,
-    optics: { value: new THREE.Vector4(Math.min(12.5, def.glassR * 0.85), 1.0, def.glassR, 12.0) },
-    state: { value: new THREE.Vector4(0, oSpec.pupilMag ?? 1.0, 0, 0) },
-    ghostA: { value: new THREE.Color(...(oSpec.ghostTintA || [0.48, 0.32, 0.78])) },
-    ghostB: { value: new THREE.Color(...(oSpec.ghostTintB || [0.38, 0.66, 0.58])) },
-  };
-  const glassMat = lib.prepare(lib.base.glass.clone(), { lensGlass: lensGlassU });
+  // Clear SMC multi-coated convex front element so the real 3D stepped baffles & animated 6-blade metal iris read clearly inside!
+  let glassMat = lib.cache.get('k1000FrontGlass|1');
+  if (!glassMat) {
+    glassMat = lib.prepare(new THREE.MeshPhysicalMaterial({
+      name: 'k1000FrontGlass', color: 0x05080b, metalness: 0, roughness: 0.025, ior: 1.62, specularIntensity: 0.85,
+      transparent: true, opacity: 0.10, iridescence: 0.80, iridescenceIOR: 1.38,
+      iridescenceThicknessMinimum: 260, iridescenceThicknessMaximum: 520, depthWrite: false, side: THREE.FrontSide,
+    }), { clip: true });
+    glassMat.userData.single = true;
+    lib.cache.set('k1000FrontGlass|1', glassMat);
+  }
 
   const L = def.L;
   const fixed = new Kit();
@@ -949,36 +1038,43 @@ function buildLens(lib, lens, hov) {
   wProf.push([def.rFocus - 0.3, zF1]);
   fk.add(revolve(wProf, { segs: 576, ribs: { n: 72, depth: 0.44, groove: 0.46, edge: 0.18 } }), fMat);
   fk.add(revolve([[def.rFocus - 0.35, zW0 + 0.1], [def.rFocus - 0.02, zW0 - 0.05], [def.rFocus - 0.02, zW0 - 0.45], [def.rFocus - 0.35, zW0 - 0.55]], { segs: 96, crease: 26 }), bk);
-  // Signature SMC Pentax-M sleek hairline chrome accent ring right ahead of the waffle focus grip (slightly bolder on 50/1.7 & 85/2!)
+  // Signature SMC Pentax-M sleek hairline chrome accent ring + tight inner helicoid seal collar ahead of waffle grip
   const chrW = (def.profile === 'fast50' || def.profile === 'portrait') ? 1.35 : 0.9;
   const chrR = def.builtInHood ? def.rFocus - 0.4 : def.rFront;
+  const rSleeve = Math.min(def.rFront - 0.55, def.rFocus - 1.8, chrR - 0.45);
   fk.add(revolve([[chrR + 0.1, zF1 + 0.3], [chrR + 0.48, zF1, 0.2], [chrR + 0.48, zF1 - chrW, 0.2], [chrR, zF1 - chrW - 0.2]], { segs: 96, crease: 26 }), chrome);
+  fk.add(revolve([[chrR, zF1 - chrW - 0.18], [rSleeve + 0.18, zF1 - chrW - 0.18], [rSleeve + 0.18, zF1 + 2.2]], { segs: 96, crease: 26 }), intBlk);
   const focusMeshes = fk.build(focus, 'focus');
 
-  // Extending Front Barrel, 49 mm Filter Threads, Per-Lens Sculpted Taper & Recessed Front Glass (Law #27!)
+  // Extending Front Barrel, Continuous Telescoping Helicoid Sleeve, 49 mm Filter Threads & Recessed Front Glass (Law #27!)
   const ext = new THREE.Group(); group.add(ext);
   const ek = new Kit();
+  const zSleeveBack = Math.min(-3.8, zF1 + (oSpec.maxExtMm || 8.0) + 4.5);
   if (def.profile === 'stepped') {
     // 35mm f/2 two-step waist taper stepping cleanly inward ahead of the wide focus grip
     ek.add(revolve([
       [def.thread, -L], [def.rFront - 0.65, -L, 0.5], [def.rFront, -L + 0.9, 0.5], [def.rFront, -L + 6.5, 0.35],
-      [def.rFront + 1.3, -L + 8.4, 0.4], [def.rFront + 1.3, zF1 + 0.8], [def.rFocus - 1.5, zF1 + 1.8],
+      [def.rFront + 1.3, -L + 8.4, 0.4], [def.rFront + 1.3, zF1 + 0.8], [rSleeve, zF1 + 1.4],
     ], { segs: 96, crease: 30 }), bk);
   } else if (def.profile === 'portrait') {
     // 85mm f/2 compact portrait tapered bell w/ sculpted beveled nose
     ek.add(revolve([
       [def.thread, -L], [def.rFront - 0.8, -L, 0.55], [def.rFront, -L + 1.1, 0.55], [def.rFront, -L + 7.2, 0.4],
-      [def.rFocus - 0.5, zF1 + 0.6, 0.4], [def.rFocus - 1.5, zF1 + 1.8],
+      [def.rFocus - 0.5, zF1 + 0.6, 0.4], [rSleeve, zF1 + 1.4],
     ], { segs: 96, crease: 30 }), bk);
   } else if (def.profile === 'compact') {
     // 28mm f/2.8 ultra-compact beveled front dish
     ek.add(revolve([
-      [def.thread, -L], [def.rFront - 0.9, -L, 0.55], [def.rFront, -L + 1.2, 0.55], [def.rFront, zF1 + 0.8], [def.rFocus - 1.5, zF1 + 1.8],
+      [def.thread, -L], [def.rFront - 0.9, -L, 0.55], [def.rFront, -L + 1.2, 0.55], [def.rFront, zF1 + 0.8], [rSleeve, zF1 + 1.4],
     ], { segs: 96, crease: 30 }), bk);
   } else {
     // 50mm f/2 (locked exact envelope!), 50mm f/1.7 & 135mm f/3.5 inner barrel
-    ek.add(revolve([[def.thread, -L], [def.rFront - 0.7, -L, 0.5], [def.rFront, -L + 0.9, 0.5], [def.rFront, zF1 + 1.0], [def.rFocus - 1.5, zF1 + 1.8]], { segs: 96, crease: 30 }), bk);
+    ek.add(revolve([[def.thread, -L], [def.rFront - 0.7, -L, 0.5], [def.rFront, -L + 0.9, 0.5], [def.rFront, zF1 + 1.0], [rSleeve, zF1 + 1.4]], { segs: 96, crease: 30 }), bk);
   }
+  // Machined black-anodized telescoping helicoid barrel sleeve (stays watertight inside focus ring all the way to minFocusDistance!)
+  ek.add(revolve([
+    [rSleeve, zF1 + 0.9], [rSleeve, zSleeveBack + 0.4, 0.2], [rSleeve - 1.2, zSleeveBack],
+  ], { segs: 96, crease: 28 }), lib.get('anod'));
   // Exposed bright machined aluminum filter-mouth rim chamfer + stepped 49 mm internal filter threads
   ek.add(revolve([[def.thread - 0.08, -L + 0.24], [def.thread + 0.34, -L + 0.02]], { segs: 96 }), steel);
   const thrProf = [];
@@ -1019,10 +1115,83 @@ function buildLens(lib, lens, hov) {
   }
   // Dual opposing front retaining-ring spanner-wrench notches (180° apart!)
   [-1, 1].forEach((s) => ek.add(rbox(1.4, 0.55, 0.52, 0.08, 1), intBlk, T(s * (rInnerFace + 0.42), 0, -L + 3.60)));
-  ek.add(new THREE.CircleGeometry(def.glassR + 0.3, 48), intBlk, T(0, 0, zGlassEdge + 0.9, 0, Math.PI, 0));
+  // Hollow stepped anti-reflection inner optical barrel tube connecting front cell cleanly back to the rear light chamber
+  const irisSpec = k1000IrisSpec(def);
+  const zOptStart = zGlassEdge + 0.85;
+  const zOptEnd = -3.0;
+  const zIrisFront = zGlassEdge + 2.6;
+  const zIrisCut = lerp(zOptStart, zOptEnd, def.zfIris ?? 0.50);
+  const zTrapBack = Math.min(-4.6, zIrisFront + 9.0);
+  const tubeSteps = 4;
+  const tubeProf = [[def.glassR + 0.1, zGlassEdge]];
+  for (let i = 0; i < tubeSteps; i++) {
+    const za = lerp(zGlassEdge, zTrapBack, i / tubeSteps), zb = lerp(zGlassEdge, zTrapBack, (i + 1) / tubeSteps);
+    const ra = lerp(def.glassR + 0.25, irisSpec.rFixed + 0.4, (i + 1) / tubeSteps);
+    tubeProf.push([ra, za + 0.25], [ra - 0.32, zb - 0.15], [ra, zb]);
+  }
+  ek.add(revolve(tubeProf, { segs: 64, crease: 20 }), intBlk);
   ek.build(ext);
-  // Standalone local-origin glass mesh (Law #17: LENS_GLASS_GLSL local-origin invariant!)
+
+  // Real 3D Animated 5/6-Blade Gunmetal Spring-Steel Iris Diaphragm (visible through clear SMC glass AND clipped cleanly in cutaway!)
+  let irisBladeMat = lib.cache.get('k1000IrisBlade|1');
+  if (!irisBladeMat) {
+    irisBladeMat = lib.prepare(new THREE.MeshStandardMaterial({
+      name: 'k1000IrisBlade', color: 0x737b86, metalness: 0.52, roughness: 0.36, envMapIntensity: 1.55, side: THREE.DoubleSide,
+    }), { clip: true, wear: 'irisBlade' });
+    lib.cache.set('k1000IrisBlade|1', irisBladeMat);
+  }
+  const { bladeGeo, fixedGeo } = buildK1000LeafGeo(irisSpec);
+  const irisGroup = new THREE.Group();
+  irisGroup.position.z = zIrisFront;
+  ext.add(irisGroup);
+  const fixedIris = new THREE.Mesh(fixedGeo, intBlk);
+  fixedIris.position.z = -0.65;
+  fixedIris.userData.noReceive = true;
+  fixedIris.userData.noShadow = true;
+  irisGroup.add(fixedIris);
+  const irisInst = new THREE.InstancedMesh(bladeGeo, irisBladeMat, irisSpec.n);
+  // Every blade vertex is clipped strictly inside rOut; provide exact analytical bounds so InstancedMesh AABB never inflates camera height
+  irisInst.boundingBox = new THREE.Box3(
+    new THREE.Vector3(-irisSpec.rOut, -irisSpec.rOut, -1.5),
+    new THREE.Vector3(irisSpec.rOut, irisSpec.rOut, 1.5),
+  );
+  irisInst.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), irisSpec.rOut + 1.5);
+  irisInst.userData.noReceive = true;
+  irisInst.userData.noShadow = true;
+  irisGroup.add(irisInst);
+
+  // Dead-flat black optical chamber backing disc behind the iris (hidden automatically in cutaway so rear glass & mirror show cleanly)
+  const rearTrap = new THREE.Mesh(prep(new THREE.CircleGeometry(irisSpec.rPlateOut + 0.2, 48)), intBlk);
+  rearTrap.rotation.y = Math.PI;
+  rearTrap.position.z = zTrapBack;
+  rearTrap.userData.noShadow = true;
+  ext.add(rearTrap);
+
+  const _irisObj = new THREE.Object3D();
+  let lastIrisR = -1;
+  const syncIris = (rIris, isCut = false) => {
+    irisGroup.position.z = isCut ? zIrisCut : zIrisFront;
+    rearTrap.visible = !isCut;
+    const r = THREE.MathUtils.clamp(rIris, irisSpec.rMin, irisSpec.rMax);
+    if (Math.abs(r - lastIrisR) < 1e-4) return;
+    lastIrisR = r;
+    const turn = Math.asin(Math.min(0.96, r / irisSpec.rPin));
+    for (let i = 0; i < irisSpec.n; i++) {
+      const a = (i / irisSpec.n) * TAU;
+      _irisObj.position.set(irisSpec.rPin * Math.cos(a), irisSpec.rPin * Math.sin(a), (i - (irisSpec.n - 1) / 2) * 0.16);
+      _irisObj.rotation.set(0, 0, a - turn);
+      _irisObj.scale.set(1, 1, 1);
+      _irisObj.updateMatrix();
+      irisInst.setMatrixAt(i, _irisObj.matrix);
+    }
+    irisInst.instanceMatrix.needsUpdate = true;
+  };
+  syncIris(irisSpec.rMax, false);
+
+  // Standalone local-origin SMC multicoated curved front glass dome (Law #17)
   const glassMesh = new THREE.Mesh(prep(revolve([[0, zGlassEdge - 1.5], [def.glassR * 0.45, zGlassEdge - 1.1], [def.glassR * 0.8, zGlassEdge - 0.5], [def.glassR + 0.2, zGlassEdge]], { segs: 64 })), glassMat);
+  glassMesh.renderOrder = 2;
+  glassMesh.userData.noShadow = true;
   ext.add(glassMesh);
 
   // Lazy 3D Stainless Pentax K-Mount Rear Bayonet Hardware (built when detached / exploded — Law #27!)
@@ -1068,7 +1237,7 @@ function buildLens(lib, lens, hov) {
     innerBuilt = true;
     const ik = new Kit(), spec = K1000_OPTICS[lens.id] || K1000_OPTICS['k-50-2'];
     const gInner = lib.get('innerGlass'), rimBlack = lib.get('anod');
-    const zStart = -L + 8.0, zEnd = -3.6;
+    const zStart = zOptStart, zEnd = zOptEnd;
     spec.forEach(([zf, rf, th, R1, R2]) => {
       const z0 = lerp(zStart, zEnd, zf), r = Math.max(6.0, def.glassR * rf);
       const sag1 = (r * r) / (2 * R1 * r * 1.45), sag2 = (r * r) / (2 * R2 * r * 1.45);
@@ -1078,8 +1247,6 @@ function buildLens(lib, lens, hov) {
       ik.add(revolve(prof, { segs: 48 }), gInner);
       ik.add(revolve([[r, z0 - th * 0.5 + sag1], [r + 0.7, z0 - th * 0.5 + sag1], [r + 0.7, z0 + th * 0.5 + sag2], [r, z0 + th * 0.5 + sag2]], { segs: 48 }), rimBlack);
     });
-    const zIris = lerp(zStart, zEnd, 0.52);
-    ik.add(revolve([[def.glassR * 0.4, zIris - 0.5], [def.rFront - 2.0, zIris - 0.5], [def.rFront - 2.0, zIris + 0.5], [def.glassR * 0.4, zIris + 0.5]], { segs: 48 }), lib.get('blade'));
     ik.build(inner);
     return true;
   };
@@ -1126,7 +1293,7 @@ function buildLens(lib, lens, hov) {
     return true;
   };
 
-  return { group, lens, def, L, lensGlassU, glassMesh, rearMount, pupilMag: oSpec.pupilMag ?? 1.0, focalMm: oSpec.focalCalMm || lens.focalLength || 50, focus, aperture, ext, inner, hoodGroup, filterGroup, filterMat, ensureRear, ensureInner, ensureHood, ensureFilter, focusMeshes, apertureMeshes, filterMeshes };
+  return { group, lens, def, L, irisSpec, irisGroup, irisInst, fixedIris, rearTrap, syncIris, glassMesh, rearMount, pupilMag: oSpec.pupilMag ?? 1.0, focalMm: oSpec.focalCalMm || lens.focalLength || 50, focus, aperture, ext, inner, hoodGroup, filterGroup, filterMat, ensureRear, ensureInner, ensureHood, ensureFilter, focusMeshes, apertureMeshes, filterMeshes };
 }
 
 // ───────── The Camera Factory ─────────
@@ -1184,7 +1351,7 @@ export function createCameraK1000({ lens }) {
   root.add(blob);
 
   const lensLists = (Lx) => [Lx.focusMeshes, Lx.apertureMeshes, Lx.filterMeshes];
-  const lensDyn = (Lx) => [Lx.group, Lx.focus, Lx.ext, Lx.aperture, Lx.inner, Lx.hoodGroup, Lx.filterGroup, Lx.glassMesh, Lx.rearMount].filter(Boolean);
+  const lensDyn = (Lx) => [Lx.group, Lx.focus, Lx.ext, Lx.aperture, Lx.inner, Lx.hoodGroup, Lx.filterGroup, Lx.glassMesh, Lx.rearMount, Lx.irisGroup, Lx.irisInst, Lx.fixedIris, Lx.rearTrap].filter(Boolean);
   const camDyn = [
     mm, body.core, body.top, body.bottom, body.door, body.mirrorPivot,
     body.curtain1Cloth, body.curtain1Lath, body.curtain2Cloth, body.curtain2Lath, body.stopDownLever,
@@ -1195,7 +1362,7 @@ export function createCameraK1000({ lens }) {
   const camLists = [body.dialMeshes, body.releaseMeshes, body.leverMeshes, body.eyepieceMeshes, head.aimMeshes, head.rollMeshes, ...lensLists(L)];
   mergeStaticRigid(root, { dynamic: new Set(camDyn), lists: camLists });
   // Law #24: Put every camera mesh strictly on layer 1 (prevents live-app lensview photobomb!) with proper shadow flags
-  const toLayer = (obj) => obj.traverse((o) => { if (!o.isMesh) return; o.layers.set(1); o.castShadow = !o.userData.noShadow && !o.material.transparent; o.receiveShadow = !o.userData.noShadow; });
+  const toLayer = (obj) => obj.traverse((o) => { if (!o.isMesh) return; o.layers.set(1); o.castShadow = !o.userData.noShadow && !o.material.transparent; o.receiveShadow = !o.userData.noShadow && !o.userData.noReceive; });
   toLayer(root);
 
   const pickables = {};
@@ -1211,7 +1378,7 @@ export function createCameraK1000({ lens }) {
   const st = {
     focusRot: 0, focusT: 0, ext: 0, extT: 0, apRot: 0, apT: 0, dial: 0, dialT: 0,
     lever: 0, press: 0, mirrorK: 0, curtain1: 0, curtain2: 0,
-    cocked: 1, stopDown: 0, asaLift: 0,
+    cocked: 1, dofK: 1, dofT: 1, stopDown: 0, asaLift: 0,
     doorK: 0, filmLoaded: true, filmPhase: 0, rewind: 0,
     explodeK: 0, lensOut: 0, lensTwist: 0, hoodOn: false, filterId: 'none', polAngle: 90, snapRings: false,
   };
@@ -1246,6 +1413,8 @@ export function createCameraK1000({ lens }) {
     st.extT = helicoidExtensionMm(L.lens, d);
     const apI = Math.max(0, L.lens.apertureStops.indexOf(s.aperture ?? L.lens.maxAperture));
     st.apT = -apI * AP_STEP;
+    // K1000 has no separate DoF preview lever: keep the 3D physical 6-blade iris coupled live to the aperture ring so students can inspect blade size directly through the lens!
+    st.dofT = s.stopDown === false && s.liveIris === false ? 0 : 1;
     const shI = s.shutterIdx ?? 7; // 1/125 s
     st.dialT = (shI + 1) * DIAL_STEP;
     const iso = s.film?.iso ?? 400;
@@ -1271,18 +1440,16 @@ export function createCameraK1000({ lens }) {
     L.focus.rotation.z = st.focusRot;
     L.ext.position.z = -st.ext;
     L.aperture.rotation.z = st.apRot;
-    // Automatic K-mount diaphragm: wide open at rest for bright SLR viewing, smoothly stops down on exposure (mirrorK / stopDown)!
+    // Real 3D 5/6-blade physical iris diaphragm: smoothly glides open/closed with the aperture ring (visible through front glass AND in cutaway)!
     const apStops = L.lens.apertureStops;
     const apIdx = Math.min(apStops.length - 1, Math.max(0, -st.apRot / AP_STEP));
     const i0 = Math.min(apStops.length - 2, Math.floor(apIdx));
     const apWork = apStops[i0] * Math.pow(apStops[i0 + 1] / apStops[i0], apIdx - i0);
-    const stopK = Math.max(0, Math.min(1, Math.max(st.stopDown || 0, st.mirrorK)));
+    const stopK = Math.max(0, Math.min(1, Math.max(st.dofK, st.stopDown || 0, st.mirrorK, e > 0.05 || st.lensOut > 0.05 ? 1 : 0)));
     const apN = apStops[0] * Math.pow(apWork / apStops[0], stopK);
-    const rIris = Math.min(L.def.glassR * 0.86, Math.max(1.8, (L.focalMm / (2 * apN)) * 0.88));
-    L.lensGlassU.optics.value.x = rIris;
-    L.lensGlassU.optics.value.y = 1.0;
-    L.lensGlassU.state.value.w = Math.min(1, e * 1.4 + st.lensOut);
-    body.stopDownLever.position.y = -4.5 - 4.8 * stopK;
+    const rIris = L.irisSpec.rMax * (apStops[0] / apN);
+    L.syncIris(rIris, cutaway);
+    body.stopDownLever.position.y = -4.5 - 4.8 * Math.max(st.stopDown || 0, st.mirrorK);
     // Cocked indicator dot: bright red only when shutter is cocked (K1000 manual!)
     body.cockedMat.color.setHex(st.cocked > 0.5 ? 0xd93826 : 0x161719);
     const rearVis = e > 0.001 || st.lensOut > 0.001;
@@ -1307,7 +1474,7 @@ export function createCameraK1000({ lens }) {
     }
     body.dial.rotation.y = st.dial;
     body.dial.position.y = B.deck + 1.8 * (st.asaLift || 0);
-    body.lever.rotation.y = -st.lever;
+    body.lever.rotation.y = st.lever;
     body.release.position.y = B.deck - 1.6 * st.press;
     // Pull-up rewind knob lifts, straight chrome crank unfolds & spinner flips upright!
     body.rwSpin.rotation.y = st.rewind;
@@ -1374,7 +1541,7 @@ export function createCameraK1000({ lens }) {
     },
     setRings(s) {
       live = s; ringTargets(s); drawCounter(s);
-      if (st.snapRings) { st.focusRot = st.focusT; st.ext = st.extT; st.apRot = st.apT; st.dial = st.dialT; st.snapRings = false; }
+      if (st.snapRings) { st.focusRot = st.focusT; st.ext = st.extT; st.apRot = st.apT; st.dial = st.dialT; st.dofK = st.dofT; st.snapRings = false; }
     },
     setHood(on) {
       st.hoodOn = Boolean(on); if (live) live.hoodOn = st.hoodOn;
@@ -1513,6 +1680,7 @@ export function createCameraK1000({ lens }) {
       st.ext += (st.extT - st.ext) * a;
       st.apRot += (st.apT - st.apRot) * a;
       st.dial += (st.dialT - st.dial) * a;
+      st.dofK += (st.dofT - st.dofK) * a;
       const hA = 1 - Math.exp(-dt * 12);
       PARTS.forEach((p) => { const h = hov[p]; h.amount.value += (h.target - h.amount.value) * hA; });
       applyPose();

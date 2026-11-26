@@ -1378,7 +1378,7 @@ export function createCameraAE1({ lens }) {
     }
     body.dial.rotation.y = st.dial;
     body.dial.position.y = B.deck + 1.6 * (st.asaLift || 0);
-    body.lever.rotation.y = -st.lever;
+    body.lever.rotation.y = st.lever;
     body.selfTimerCollar.rotation.y = -0.45 * (st.selfTimerK || 0) + 0.42 * (st.lockK || 0);
     body.release.position.y = B.deck - 1.4 * st.press;
     body.batCheckBtn.position.y = B.deck - 1.1 * (st.batCheckK || 0);
