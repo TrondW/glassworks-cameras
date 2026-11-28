@@ -168,36 +168,69 @@ function noiseSeed(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F
  *  met at a shallow angle: wide flowing bands, never straight stripes), fine pores along the grain, a few pin knots and
  *  mineral flecks (the photographs). The grain runs along u. 1024 px for 160 mm, tiling; with it a height map of the
  *  grain (the pores and the rings' hard edges stand a hair proud after sanding). */
+let _birchFaceCache = null;
+let _birchEdgeCache = null;
 function birchFaceTex() {
-  const N = 1024, cv = canvas(N, N), g = cv.getContext('2d'), img = g.createImageData(N, N), d = img.data;
+  if (_birchFaceCache) return _birchFaceCache;
+  const N = 1024, invN = 1 / N, cv = canvas(N, N), g = cv.getContext('2d'), img = g.createImageData(N, N), d = img.data;
   const cb = canvas(N, N), gb = cb.getContext('2d'), imb = gb.createImageData(N, N), db = imb.data;
   const rnd = noiseSeed(11), G = 512, lat = new Float32Array(G * G);
   for (let i = 0; i < G * G; i++) lat[i] = rnd();
-  // value noise of period (px, py) lattice cells, so the texture tiles
-  const vn = (x, y, px, py) => {
-    const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
-    const x0 = ((xi % px) + px) % px, x1 = (x0 + 1) % px, y0 = ((yi % py) + py) % py, y1 = (y0 + 1) % py;
-    const a = lat[y0 * G + x0], b = lat[y0 * G + x1], c = lat[y1 * G + x0], e = lat[y1 * G + x1];
-    return a + (b - a) * sx + (c - a + (a - b - c + e) * sx) * sy;
+  // Precompute per-column (u) lattice indices & smoothstep weights for the 7 noise octaves
+  const mkX = (px) => {
+    const x0 = new Uint16Array(N), x1 = new Uint16Array(N), sx = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      const x = i * invN * px, xi = x | 0, fx = x - xi;
+      x0[i] = xi % px; x1[i] = (xi + 1) % px; sx[i] = fx * fx * (3 - 2 * fx);
+    }
+    return [x0, x1, sx];
+  };
+  const [x0_2, x1_2, sx_2] = mkX(2);
+  const [x0_3, x1_3, sx_3] = mkX(3);
+  const [x0_5, x1_5, sx_5] = mkX(5);
+  const [x0_9, x1_9, sx_9] = mkX(9);
+  const [x0_12, x1_12, sx_12] = mkX(12);
+  const [x0_40, x1_40, sx_40] = mkX(40);
+  const sampleRow = (v, py) => {
+    const y = v * py, yi = y | 0, fy = y - yi;
+    return [(yi % py) * G, ((yi + 1) % py) * G, fy * fy * (3 - 2 * fy)];
   };
   for (let j = 0; j < N; j++) {
-    const v = j / N;
+    const v = j * invN;
+    const [r0_3, r1_3, sy_3] = sampleRow(v, 3);
+    const [r0_4, r1_4, sy_4] = sampleRow(v, 4);
+    const [r0_9, r1_9, sy_9] = sampleRow(v, 9);
+    const [r0_31, r1_31, sy_31] = sampleRow(v, 31);
+    const [r0_160, r1_160, sy_160] = sampleRow(v, 160);
+    const [r0_420, r1_420, sy_420] = sampleRow(v, 420);
+    const [r0_512, r1_512, sy_512] = sampleRow(v, 512);
+    const v9 = v * 9, rowOff = j * N * 4;
     for (let i = 0; i < N; i++) {
-      const u = i / N;
-      // the figure: rings crossed at a shallow angle, pushed about by the log's waviness
-      const warp = 2.6 * vn(u * 2, v * 3, 2, 3) + 0.9 * vn(u * 5, v * 9, 5, 9) + 0.25 * vn(u * 9, v * 31, 9, 31);
-      const f = v * 9 + warp, r = f - Math.floor(f);
-      const late = Math.exp(-((r - 0.86) ** 2) / 0.012);          // the darker latewood line of each ring
-      const early = 0.5 - 0.5 * Math.cos(r * TAU);                 // a soft swell across the ring
-      const streak = vn(u * 3, v * 160, 3, 160) - 0.5;             // fine straight fibre
-      const fibre = vn(u * 12, v * 420, 12, 420) - 0.5;
-      const blotch = vn(u * 3, v * 4, 3, 4) - 0.5;                 // the oil taken up unevenly
-      const pore = vn(u * 40, v * 512, 40, 512) > 0.9 ? 1 : 0;     // short dark pores along the grain
+      let a, b, c, e, s;
+      s = sx_2[i]; a = lat[r0_3 + x0_2[i]]; b = lat[r0_3 + x1_2[i]]; c = lat[r1_3 + x0_2[i]]; e = lat[r1_3 + x1_2[i]];
+      const n1 = a + (b - a) * s + (c - a + (a - b - c + e) * s) * sy_3;
+      s = sx_5[i]; a = lat[r0_9 + x0_5[i]]; b = lat[r0_9 + x1_5[i]]; c = lat[r1_9 + x0_5[i]]; e = lat[r1_9 + x1_5[i]];
+      const n2 = a + (b - a) * s + (c - a + (a - b - c + e) * s) * sy_9;
+      s = sx_9[i]; a = lat[r0_31 + x0_9[i]]; b = lat[r0_31 + x1_9[i]]; c = lat[r1_31 + x0_9[i]]; e = lat[r1_31 + x1_9[i]];
+      const n3 = a + (b - a) * s + (c - a + (a - b - c + e) * s) * sy_31;
+      const f = v9 + 2.6 * n1 + 0.9 * n2 + 0.25 * n3, r = f - Math.floor(f);
+      const late = Math.exp(-((r - 0.86) * (r - 0.86)) / 0.012);
+      const early = 0.5 - 0.5 * Math.cos(r * TAU);
+      s = sx_3[i];
+      a = lat[r0_160 + x0_3[i]]; b = lat[r0_160 + x1_3[i]]; c = lat[r1_160 + x0_3[i]]; e = lat[r1_160 + x1_3[i]];
+      const streak = a + (b - a) * s + (c - a + (a - b - c + e) * s) * sy_160 - 0.5;
+      a = lat[r0_4 + x0_3[i]]; b = lat[r0_4 + x1_3[i]]; c = lat[r1_4 + x0_3[i]]; e = lat[r1_4 + x1_3[i]];
+      const blotch = a + (b - a) * s + (c - a + (a - b - c + e) * s) * sy_4 - 0.5;
+      s = sx_12[i]; a = lat[r0_420 + x0_12[i]]; b = lat[r0_420 + x1_12[i]]; c = lat[r1_420 + x0_12[i]]; e = lat[r1_420 + x1_12[i]];
+      const fibre = a + (b - a) * s + (c - a + (a - b - c + e) * s) * sy_420 - 0.5;
+      s = sx_40[i]; a = lat[r0_512 + x0_40[i]]; b = lat[r0_512 + x1_40[i]]; c = lat[r1_512 + x0_40[i]]; e = lat[r1_512 + x1_40[i]];
+      const pore = (a + (b - a) * s + (c - a + (a - b - c + e) * s) * sy_512) > 0.9 ? 1 : 0;
       const k = 1 + 0.05 * early - 0.13 * late + 0.07 * streak + 0.05 * fibre + 0.09 * blotch - 0.09 * pore;
-      const o = (j * N + i) * 4;
-      d[o] = Math.min(255, 221 * k); d[o + 1] = Math.min(255, 171 * (k - 0.03 * late + 0.012 * blotch)); d[o + 2] = Math.min(255, 108 * (k - 0.07 * late - 0.02 * blotch)); d[o + 3] = 255;
+      const o = rowOff + i * 4;
+      const c0 = 221 * k, c1 = 171 * (k - 0.03 * late + 0.012 * blotch), c2 = 108 * (k - 0.07 * late - 0.02 * blotch);
+      d[o] = c0 > 255 ? 255 : c0; d[o + 1] = c1 > 255 ? 255 : c1; d[o + 2] = c2 > 255 ? 255 : c2; d[o + 3] = 255;
       const hgt = 150 + 40 * streak + 30 * fibre + 26 * late - 70 * pore;
-      db[o] = db[o + 1] = db[o + 2] = Math.max(0, Math.min(255, hgt)); db[o + 3] = 255;
+      db[o] = db[o + 1] = db[o + 2] = hgt < 0 ? 0 : (hgt > 255 ? 255 : hgt); db[o + 3] = 255;
     }
   }
   g.putImageData(img, 0, 0); gb.putImageData(imb, 0, 0);
@@ -211,12 +244,16 @@ function birchFaceTex() {
   const t = tex(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / 160, 1 / 160);
   const bump = tex(cb, false); bump.wrapS = bump.wrapT = THREE.RepeatWrapping; bump.repeat.set(1 / 160, 1 / 160);
   t.userData.bump = bump;
-  return t;
+  t.userData.shared = true; bump.userData.shared = true;
+  if (t.source) (t.source.userData ||= {}).shared = true;
+  if (bump.source) (bump.source.userData ||= {}).shared = true;
+  return (_birchFaceCache = t);
 }
 /** The plies seen on an edge: birch layers 1.35 mm thick, alternately long grain (pale) and end grain (darker: it
  *  drinks the oil and takes the laser's scorch), a thin dark glue line between, all browned by the laser that cut them
  *  (the photographs of the frame's side and the base's). v in mm across the thickness. */
 function birchEdgeTex() {
+  if (_birchEdgeCache) return _birchEdgeCache;
   const cv = canvas(128, 256), g = cv.getContext('2d'), rnd = noiseSeed(5);
   const P = 128;   // px per ply (two plies in the texture's height)
   for (let k = 0; k < 2; k++) {
@@ -226,7 +263,10 @@ function birchEdgeTex() {
   }
   // the scorch: uneven along the cut
   for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(70,40,20,${0.03 + rnd() * 0.07})`; g.fillRect(rnd() * 128, 0, 2 + rnd() * 14, 256); }
-  const t = tex(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / 30, 1 / 2.7); return t;
+  const t = tex(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / 30, 1 / 2.7);
+  t.userData.shared = true;
+  if (t.source) (t.source.userData ||= {}).shared = true;
+  return (_birchEdgeCache = t);
 }
 /** The shutter's front face inside the speed ring (the photograph): its speeds 9.5° apart round the upper left, 500 at the lower
  *  left to T at one o'clock (B red, T green), white; the shutter's size, "No. 0", at the bottom. 1024 px across 58 mm,
