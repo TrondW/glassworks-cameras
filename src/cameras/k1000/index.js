@@ -999,11 +999,21 @@ function buildLens(lib, lens, hov) {
   }
 
   const L = def.L;
+  const maxExt = helicoidExtensionMm(lens, lens.minFocusDistance || 0.45);
+  const zF0 = -15.7;
+  const zF1 = def.builtInHood ? -(L - def.hoodLen - 1.2) : def.profile === 'stepped' ? -(L - 10.5) : -Math.max(25.0, L - 5.2);
+  const chrW = (def.profile === 'fast50' || def.profile === 'portrait') ? 1.35 : 0.9;
+  const chrR = def.builtInHood ? def.rFocus - 0.4 : def.rFront;
+  const rInnerFixed = Math.min(def.rMount - 2.0, def.rAp - 0.5, def.rFocus - 0.85);
+  const rSleeve = Math.min(def.rFront - 0.55, def.rFocus - 1.8, chrR - 0.45, rInnerFixed - 0.4);
+  const zSleeveBack = Math.min(-2.5, Math.max(zF1 + maxExt + 5.0, zF1 + 8.0));
   const fixed = new Kit();
+  // Continuous matte-black inner stationary barrel housing sealing mount/aperture/DoF/focus seams
+  fixed.add(revolve([[rInnerFixed, zF1 + 0.6], [rInnerFixed, -0.3]], { segs: 84 }), lib.get('anod'));
   // Rear K-mount bayonet collar + Authentic SMC Pentax-M All-Black Lower Barrel + Raised White Tactile Mounting Bump (#13, ks_pentax_m50_01!)
-  fixed.add(revolve([[def.rMount - 2.0, 0], [def.rMount - 0.5, -0.8, 0.3], [def.rMount - 0.5, -2.2]], { segs: 96, crease: 30 }), bk);
+  fixed.add(revolve([[def.rMount - 2.0, 0], [def.rMount - 0.5, -0.8, 0.3], [def.rMount - 0.5, -2.5], [def.rAp - 0.6, -2.5]], { segs: 96, crease: 30 }), bk);
   fixed.add(revolve([[def.rAp, -8.5], [def.rAp + 0.15, -8.8, 0.25], [def.rAp + 0.15, -10.5, 0.25], [def.rAp, -10.8]], { segs: 96, crease: 28 }), bk);
-  fixed.add(bandRow(revolve([[def.rAp, -15.6], [def.rAp, -10.8]], { segs: 96, uv: 'band' }), 1), eng(null));
+  fixed.add(bandRow(revolve([[def.rAp, -15.85], [def.rAp, -10.8]], { segs: 96, uv: 'band' }), 1), eng(null));
   // Iconic Pentax K-mount raised white tactile lens-mounting alignment bump inside a crisp machined chrome collar + red IR index pip!
   fixed.add(revolve([[1.85, 0], [1.85, 0.45, 0.15], [1.45, 0.5]], { segs: 24 }), chrome, radialT(36 * DEG, def.rAp - 0.22, -12.0));
   fixed.add(new THREE.SphereGeometry(1.52, 18, 14), lib.get('white'), radialT(36 * DEG, def.rAp - 0.18, -12.0));
@@ -1025,8 +1035,6 @@ function buildLens(lib, lens, hov) {
   // Compact Focusing Ring (distance scale + true 3D multi-row diamond rubber waffle grip, n=72, segs=576 + thin front chrome hairline!)
   const focus = new THREE.Group(); group.add(focus);
   const fk = new Kit(), fMat = lib.get('knurl', { hover: hov.focus });
-  const zF0 = -15.7;
-  const zF1 = def.builtInHood ? -(L - def.hoodLen - 1.2) : def.profile === 'stepped' ? -(L - 10.5) : -Math.max(25.0, L - 5.2);
   fk.add(bandRow(revolve([[def.rFocus - 0.5, zF0 - 5.2], [def.rFocus - 0.5, zF0]], { segs: 120, uv: 'band' }), 0), eng(hov.focus));
   const zW0 = zF0 - 5.2, wSpan = zW0 - zF1, wRows = wSpan > 11.0 ? 3 : 2;
   const wProf = [[def.rFocus - 0.3, zW0]];
@@ -1038,18 +1046,15 @@ function buildLens(lib, lens, hov) {
   wProf.push([def.rFocus - 0.3, zF1]);
   fk.add(revolve(wProf, { segs: 576, ribs: { n: 72, depth: 0.44, groove: 0.46, edge: 0.18 } }), fMat);
   fk.add(revolve([[def.rFocus - 0.35, zW0 + 0.1], [def.rFocus - 0.02, zW0 - 0.05], [def.rFocus - 0.02, zW0 - 0.45], [def.rFocus - 0.35, zW0 - 0.55]], { segs: 96, crease: 26 }), bk);
-  // Signature SMC Pentax-M sleek hairline chrome accent ring + tight inner helicoid seal collar ahead of waffle grip
-  const chrW = (def.profile === 'fast50' || def.profile === 'portrait') ? 1.35 : 0.9;
-  const chrR = def.builtInHood ? def.rFocus - 0.4 : def.rFront;
-  const rSleeve = Math.min(def.rFront - 0.55, def.rFocus - 1.8, chrR - 0.45);
-  fk.add(revolve([[chrR + 0.1, zF1 + 0.3], [chrR + 0.48, zF1, 0.2], [chrR + 0.48, zF1 - chrW, 0.2], [chrR, zF1 - chrW - 0.2]], { segs: 96, crease: 26 }), chrome);
-  fk.add(revolve([[chrR, zF1 - chrW - 0.18], [rSleeve + 0.18, zF1 - chrW - 0.18], [rSleeve + 0.18, zF1 + 2.2]], { segs: 96, crease: 26 }), intBlk);
+  // Forward-facing black step flange closing waffle grip down onto chrome collar (dr > 0 -> nz < 0, fixes 1.8 mm ring gap!)
+  fk.add(revolve([[rSleeve + 0.15, zF1], [def.rFocus - 0.25, zF1]], { segs: 96 }), bk);
+  // Signature SMC Pentax-M sleek hairline chrome accent ring + forward-facing inner helicoid seal collar (dr > 0 -> nz < 0!)
+  fk.add(revolve([[rSleeve + 0.15, zF1 - chrW - 0.2], [chrR, zF1 - chrW - 0.2], [chrR + 0.48, zF1 - chrW, 0.2], [chrR + 0.48, zF1, 0.2], [chrR + 0.1, zF1 + 0.3]], { segs: 96, crease: 26 }), chrome);
   const focusMeshes = fk.build(focus, 'focus');
 
   // Extending Front Barrel, Continuous Telescoping Helicoid Sleeve, 49 mm Filter Threads & Recessed Front Glass (Law #27!)
   const ext = new THREE.Group(); group.add(ext);
   const ek = new Kit();
-  const zSleeveBack = Math.min(-3.8, zF1 + (oSpec.maxExtMm || 8.0) + 4.5);
   if (def.profile === 'stepped') {
     // 35mm f/2 two-step waist taper stepping cleanly inward ahead of the wide focus grip
     ek.add(revolve([
@@ -1073,7 +1078,7 @@ function buildLens(lib, lens, hov) {
   }
   // Machined black-anodized telescoping helicoid barrel sleeve (stays watertight inside focus ring all the way to minFocusDistance!)
   ek.add(revolve([
-    [rSleeve, zF1 + 0.9], [rSleeve, zSleeveBack + 0.4, 0.2], [rSleeve - 1.2, zSleeveBack],
+    [rSleeve, zF1 - chrW], [rSleeve, zSleeveBack + 0.4, 0.2], [rSleeve - 1.2, zSleeveBack],
   ], { segs: 96, crease: 28 }), lib.get('anod'));
   // Exposed bright machined aluminum filter-mouth rim chamfer + stepped 49 mm internal filter threads
   ek.add(revolve([[def.thread - 0.08, -L + 0.24], [def.thread + 0.34, -L + 0.02]], { segs: 96 }), steel);
@@ -1086,13 +1091,13 @@ function buildLens(lib, lens, hov) {
   if (!def.builtInHood) {
     [-90, 90].forEach((a) => addScrew(ek, steel, ek, flock, radialT(a * DEG, def.rFront - 0.04, -L + 3.0), 0.68, false, 0.2));
   }
-  // Wide outward-facing conical engraved beauty ring (guaranteed >= 3.6 mm wide on ALL 6 K-mount primes — fixes k-85-2 squish!)
+  // Wide outward-facing conical engraved beauty ring tucked seamlessly inside filter thread bore (zero perimeter light leak!)
   const rInnerFace = Math.min(def.thread - 3.6, def.glassR + (def.funnelPad ?? 0.6));
-  const ring = new THREE.RingGeometry(rInnerFace, def.thread - 0.2, 84); ring.rotateY(Math.PI);
+  const ring = new THREE.RingGeometry(rInnerFace, def.thread + 0.08, 84); ring.rotateY(Math.PI);
   const rPos = ring.attributes.position;
   for (let i = 0; i < rPos.count; i++) {
     const r = Math.hypot(rPos.getX(i), rPos.getY(i));
-    const u = Math.max(0, Math.min(1, (r - rInnerFace) / Math.max(0.1, def.thread - 0.2 - rInnerFace)));
+    const u = Math.max(0, Math.min(1, (r - rInnerFace) / Math.max(0.1, def.thread + 0.08 - rInnerFace)));
     rPos.setZ(i, lerp(-L + 3.8, -L + 2.1, u));
   }
   ring.computeVertexNormals();
@@ -1104,14 +1109,14 @@ function buildLens(lib, lens, hov) {
     const steps = funnelGap >= 2.2 ? 5 : 3;
     const bafProf = [];
     for (let i = 0; i < steps; i++) {
-      const rA = lerp(rInnerFace, def.glassR + 0.2, i / steps), rB = lerp(rInnerFace, def.glassR + 0.2, (i + 1) / steps);
-      const zA = lerp(-L + 3.8, zGlassEdge, i / steps), zB = lerp(-L + 3.8, zGlassEdge, (i + 1) / steps);
-      bafProf.push([rA, zA], [rA - 0.28, zB], [rB, zB]);
+      const rA = lerp(rInnerFace + 0.12, def.glassR + 0.2, i / steps), rB = lerp(rInnerFace + 0.12, def.glassR + 0.2, (i + 1) / steps);
+      const zA = lerp(-L + 3.75, zGlassEdge, i / steps), zB = lerp(-L + 3.75, zGlassEdge, (i + 1) / steps);
+      bafProf.push([rB, zB], [rA - 0.28, zB], [rA, zA]);
     }
-    ek.add(revolve(bafProf, { segs: 72, crease: 20 }), intBlk);
+    ek.add(revolve(bafProf.reverse(), { segs: 72, crease: 20 }), intBlk);
   } else {
-    // Crisp machined retaining cell bevel for wide luminous eyes (50/1.7, 85/2, 135/3.5!)
-    ek.add(revolve([[rInnerFace + 0.1, -L + 3.75], [def.glassR + 0.35, -L + 3.55, 0.15], [def.glassR + 0.1, zGlassEdge]], { segs: 84 }), bk);
+    // Crisp forward-facing machined retaining cell bevel for wide luminous eyes (dr > 0 -> nz < 0!)
+    ek.add(revolve([[def.glassR - 0.1, zGlassEdge], [def.glassR + 0.35, -L + 3.55, 0.15], [rInnerFace + 0.12, -L + 3.75]], { segs: 84 }), bk);
   }
   // Dual opposing front retaining-ring spanner-wrench notches (180° apart!)
   [-1, 1].forEach((s) => ek.add(rbox(1.4, 0.55, 0.52, 0.08, 1), intBlk, T(s * (rInnerFace + 0.42), 0, -L + 3.60)));

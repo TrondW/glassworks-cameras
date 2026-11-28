@@ -553,13 +553,36 @@ function buildBody(lib, hov) {
   });
   const left = clip(outline, 0, TP.facetX, -1), mid = clip(clip(outline, 0, TP.facetX, 1), 0, TP.step, -1), right = clip(outline, 0, TP.step, 1);
   add(plateRegion(cutBy(left, rim), facetH, edgeOf(true)));
-  // the well's wall, where it runs inside the plate, and its floor under the knob
+  // the well's wall, where it runs inside the plate, its floor under the knob (clipped to the plate outline),
+  // and the continuous outer left wall closing the top plate cleanly under the tilted rewind pocket
   {
     const wp = [], wi = [], inward = (k) => { const ph = (k / 72) * TAU; return wellSide.clone().multiplyScalar(-Math.cos(ph)).add(new THREE.Vector3(0, 0, -Math.sin(ph))); };
     const inside = (v) => pointInPoly(v.x, v.z, outline);
+    const rwFloor = rwBase.clone().addScaledVector(axis, -0.4);
+    const yFloorAt = (x) => rwFloor.y + (x - rwFloor.x) * Math.tan(tilt);
+    const yCylAt = (x, z) => {
+      const v = z - rwBase.z;
+      const u = -Math.sqrt(Math.max(0, WR * WR - v * v));
+      return rwBase.y + (u - (x - rwBase.x) * Math.cos(tilt)) / Math.sin(tilt);
+    };
+    const clipLineInside = (a, b) => {
+      const ia = inside(a), ib = inside(b);
+      if (ia && ib) return [a, b];
+      if (!ia && !ib) return null;
+      let lo = 0, hi = 1;
+      for (let i = 0; i < 24; i++) {
+        const m = (lo + hi) * 0.5;
+        const p = new THREE.Vector3().lerpVectors(a, b, m);
+        if (inside(p) === ia) lo = m; else hi = m;
+      }
+      const cut = new THREE.Vector3().lerpVectors(a, b, (lo + hi) * 0.5);
+      return ia ? [a, cut] : [cut, b];
+    };
     for (let k = 0; k < 72; k++) {
-      const [a0, a1] = wellLines[k], [b0, b1] = wellLines[(k + 1) % 72];
-      if (!inside(a1) || !inside(b1)) continue;
+      const sA = clipLineInside(wellLines[k][0], wellLines[k][1]);
+      const sB = clipLineInside(wellLines[(k + 1) % 72][0], wellLines[(k + 1) % 72][1]);
+      if (!sA || !sB) continue;
+      const [a0, a1] = sA, [b0, b1] = sB;
       const base = wp.length / 3;
       wp.push(a0.x, a0.y, a0.z, b0.x, b0.y, b0.z, b1.x, b1.y, b1.z, a1.x, a1.y, a1.z);
       // (wound to face the knob)
@@ -569,8 +592,91 @@ function buildBody(lib, hov) {
     const wg = new THREE.BufferGeometry();
     wg.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3)); wg.setAttribute('uv', new THREE.Float32BufferAttribute(new Array((wp.length / 3) * 2).fill(0), 2));
     wg.setIndex(wi); wg.computeVertexNormals(); tk.add(wg, bc);
-    const floor = new THREE.CircleGeometry(WR, 48); floor.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis));
-    floor.translate(...rwBase.clone().addScaledVector(axis, -0.4).toArray()); tk.add(floor, flock);
+    // Clipped well floor (never protrudes past the left outer wall of the top plate) + solid underside closure
+    const floor = new THREE.CircleGeometry(WR, 64); floor.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis));
+    floor.translate(rwFloor.x, rwFloor.y, rwFloor.z);
+    const fPos = floor.attributes.position;
+    for (let i = 0; i < fPos.count; i++) {
+      const vx = fPos.getX(i), vy = fPos.getY(i), vz = fPos.getZ(i);
+      if (pointInPoly(vx, vz, outline)) continue;
+      let lo = 0, hi = 1;
+      for (let it = 0; it < 24; it++) {
+        const m = (lo + hi) * 0.5;
+        if (pointInPoly(lerp(rwFloor.x, vx, m), lerp(rwFloor.z, vz, m), outline)) lo = m; else hi = m;
+      }
+      fPos.setXYZ(i, lerp(rwFloor.x, vx, lo), lerp(rwFloor.y, vy, lo), lerp(rwFloor.z, vz, lo));
+    }
+    floor.computeVertexNormals();
+    tk.add(floor, flock);
+    // Close the bitten-out outer left vertical wall of the top plate from TP.shoulder up to the exact tilted pocket lip
+    // (eliminates the rectangular cutout gap below the angled rewind crank while preserving the scooped top shoulder)
+    const crossSeg = (p, q, r, s) => {
+      const d = (q[0] - p[0]) * (s[1] - r[1]) - (q[1] - p[1]) * (s[0] - r[0]);
+      if (Math.abs(d) < 1e-12) return null;
+      const t = ((r[0] - p[0]) * (s[1] - r[1]) - (r[1] - p[1]) * (s[0] - r[0])) / d;
+      const u = ((r[0] - p[0]) * (q[1] - p[1]) - (r[1] - p[1]) * (q[0] - p[0])) / d;
+      return t >= 0 && t < 1 && u >= 0 && u < 1 ? { t, u } : null;
+    };
+    const ln = left.length, rn = rim.length, hits = [];
+    for (let i = 0; i < ln; i++) {
+      const p = left[i], q = left[(i + 1) % ln];
+      for (let j = 0; j < rn; j++) {
+        const h = crossSeg(p, q, rim[j], rim[(j + 1) % rn]);
+        if (h) hits.push({ i, t: h.t, pt: [p[0] + (q[0] - p[0]) * h.t, p[1] + (q[1] - p[1]) * h.t] });
+      }
+    }
+    if (hits.length === 2) {
+      const afterPt = (h) => { const p = left[h.i], q = left[(h.i + 1) % ln], t = Math.min(1, h.t + 1e-4); return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]; };
+      const entry = pointInPoly(...afterPt(hits[0]), rim) ? hits[0] : hits[1];
+      const exit = entry === hits[0] ? hits[1] : hits[0];
+      const arc = [entry.pt];
+      let steps = (exit.i - entry.i + ln) % ln;
+      if (steps === 0 && exit.t < entry.t) steps = ln;
+      for (let c = 0, k = (entry.i + 1) % ln; c < steps; c++, k = (k + 1) % ln) arc.push(left[k]);
+      arc.push(exit.pt);
+      // Subdivide arc finely so the curved cylinder-lip silhouette follows yCylAt / yFloorAt smoothly
+      const fine = [];
+      for (let i = 0; i < arc.length - 1; i++) {
+        const a = arc[i], b = arc[i + 1], sub = Math.max(2, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.6));
+        for (let s = 0; s < sub; s++) fine.push([lerp(a[0], b[0], s / sub), lerp(a[1], b[1], s / sub)]);
+      }
+      fine.push(arc[arc.length - 1]);
+      const yTopAt = (x, z) => Math.max(yFloorAt(x) + 0.05, Math.min(facetH(x) - OUT, yCylAt(x, z)));
+      const owP = [], owN = [], owUV = [], owI = [];
+      const shP = [], shI = [];
+      const inCenter = [rwFloor.x, rwFloor.y, rwFloor.z];
+      for (let i = 0; i < fine.length - 1; i++) {
+        const [ax, az] = fine[i], [bx, bz] = fine[i + 1];
+        const dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz) || 1;
+        // Outward normal on left side of top plate points toward -X / outward from center (x=-50, z=-7.4)
+        let nx = -dz / l, nz = dx / l;
+        if (nx * ((ax + bx) * 0.5 + 50) + nz * ((az + bz) * 0.5 + 7.4) < 0) { nx = -nx; nz = -nz; }
+        const ya = yTopAt(ax, az), yb = yTopAt(bx, bz), yBot = TP.shoulder - 0.15;
+        const base = owP.length / 3;
+        owP.push(ax, ya, az, bx, yb, bz, bx, yBot, bz, ax, yBot, az);
+        owN.push(nx, 0, nz, nx, 0, nz, nx, 0, nz, nx, 0, nz);
+        owUV.push(i, ya, i + 1, yb, i + 1, yBot, i, yBot);
+        const e1 = new THREE.Vector3(bx - ax, yb - ya, bz - az), e2 = new THREE.Vector3(0, yBot - ya, 0);
+        if (e1.cross(e2).dot(new THREE.Vector3(nx, 0, nz)) > 0) owI.push(base, base + 1, base + 2, base, base + 2, base + 3);
+        else owI.push(base, base + 2, base + 1, base, base + 3, base + 2);
+        // Upward-facing matte sealed pocket shelf bridging the outer wall top inward to the well floor
+        const sb = shP.length / 3;
+        shP.push(ax, ya, az, bx, yb, bz, inCenter[0], inCenter[1], inCenter[2]);
+        const s1 = new THREE.Vector3(bx - ax, yb - ya, bz - az), s2 = new THREE.Vector3(inCenter[0] - ax, inCenter[1] - ya, inCenter[2] - az);
+        if (s1.cross(s2).dot(axis) > 0) shI.push(sb, sb + 1, sb + 2); else shI.push(sb, sb + 2, sb + 1);
+      }
+      const owG = new THREE.BufferGeometry();
+      owG.setAttribute('position', new THREE.Float32BufferAttribute(owP, 3));
+      owG.setAttribute('normal', new THREE.Float32BufferAttribute(owN, 3));
+      owG.setAttribute('uv', new THREE.Float32BufferAttribute(owUV, 2));
+      owG.setIndex(owI);
+      tk.add(owG, bc);
+      const shG = new THREE.BufferGeometry();
+      shG.setAttribute('position', new THREE.Float32BufferAttribute(shP, 3));
+      shG.setAttribute('uv', new THREE.Float32BufferAttribute(new Array((shP.length / 3) * 2).fill(0), 2));
+      shG.setIndex(shI); shG.computeVertexNormals();
+      tk.add(shG, flock);
+    }
   }
   // (the housing's front part meets the notch's corner partway along its back edge: split the edge there)
   add(plateRegion(splitEdges(clip(mid, 1, N.z0, -1), [[N.x0, N.z0]]), TP.housing, edgeOf(true)));
@@ -1097,12 +1203,12 @@ function frontRing(lens, def) {
   const cv = canvas(1024, 1024), g = cv.getContext('2d');
   g.fillStyle = '#0a0a0c'; g.fillRect(0, 0, 1024, 1024);
   const rInner = Math.min(def.front.thread - 3.2, def.front.glassR + (def.funnelPad ?? 0.5));
-  const rOuter = def.front.thread - 0.15;
+  const rOuter = def.front.thread + 0.08;
   const pxR = (r) => 512 * (r / rOuter);
   // Subtle machined concentric hairline rules framing the Leica-style optical engraving
   g.strokeStyle = 'rgba(255,255,255,0.12)'; g.lineWidth = 3;
   g.beginPath(); g.arc(512, 512, pxR(rInner + 0.35), 0, TAU); g.stroke();
-  g.beginPath(); g.arc(512, 512, pxR(rOuter - 0.35), 0, TAU); g.stroke();
+  g.beginPath(); g.arc(512, 512, pxR(def.front.thread - 0.45), 0, TAU); g.stroke();
   const R = pxR((rInner + rOuter) / 2);
   arcText(g, `GLASS WORKS  ${def.title || 'M-OPTIK'}`, 512, 512, R, Math.PI * 0.68, 36, INK.white, 600);
   arcText(g, `1:${lens.maxAperture}/${lens.focalLength}`, 512, 512, R, Math.PI * 0.14, 38, INK.white, 700);
@@ -1155,7 +1261,10 @@ function buildLens(lib, lens, hov) {
   };
   // the depth-of-field ring (fixed): its chamfers, the smooth front with the scale, the knurl round the rest (a smooth
   // spot for the red mount dot), the face down to the bayonet + authentic red IR focus pip!
-  fixed.add(revolve([[24.0, Dd.z0], [24.4, Dd.z0 + 0.1], [Dd.r, Dd.flat[0], 0.6]], { segs: 160, crease: 30 }), bk);
+  const maxExt = helicoidExtensionMm(lens, lens.minFocusDistance || 0.7);
+  const rCore = Math.min(def.tube.r - 0.15, Fr.groove2[2] - 0.25, 19.6);
+  const rInnerFixed = Math.min(def.tube.r + 0.35, 22.4);
+  fixed.add(revolve([[rCore + 0.3, Dd.z0], [24.4, Dd.z0 + 0.1], [Dd.r, Dd.flat[0], 0.6]], { segs: 160, crease: 30 }), bk);
   fixed.add(revolve([[Dd.r, Dd.flat[1], 0.6], [Dd.r - 0.6, Dd.flat[1] + 0.6, 0.4], [23.0, Dd.z1], [Bay.r1, Dd.z1]], { segs: 160, crease: 30 }), bk);
   fixed.add(bandRow(revolve([[Dd.r, Dd.flat[0]], [Dd.r, Dd.flat[1]]], { segs: 48, uv: 'band', phi0: -Dd.patch * DEG, phiLen: 2 * Dd.patch * DEG }), 1, -Dd.patch * DEG, 2 * Dd.patch * DEG), eng(null));
   fixed.add(revolve([[Dd.r, Dd.flat[0]], [Dd.r, Dd.flat[1]]], { segs: 16, phi0: (Dd.dot - 7) * DEG, phiLen: 14 * DEG }), bk);
@@ -1164,13 +1273,15 @@ function buildLens(lib, lens, hov) {
   fixed.add(new THREE.SphereGeometry(0.92, 20, 14), lib.get('red'), T(Dd.r * Math.sin(Dd.dot * DEG), Dd.r * Math.cos(Dd.dot * DEG), (Dd.flat[0] + Dd.flat[1]) / 2));
   // Tiny red Infrared (R) index dot on the DoF collar just right of the 12 o'clock focus index!
   fixed.add(new THREE.SphereGeometry(0.42, 14, 10), lib.get('red'), T(Dd.r * Math.sin(-8.5 * DEG), Dd.r * Math.cos(-8.5 * DEG), Dd.flat[0] + 1.1));
+  // Continuous matte-black inner stationary housing sleeve sealing the DoF/focus/mount core against oblique light leaks
+  fixed.add(revolve([[rInnerFixed, F.z0 + 0.6], [rInnerFixed, -1.9]], { segs: 84 }), anod);
   fixed.build(group);
   // the focusing ring: crisp machined fine-ribbed grip (segs = 6*n -> zero moiré!), distance scale & concave focusing tab on 28/35/50 f/1.4
   const focus = new THREE.Group(); group.add(focus);
   const fk = new Kit(), fMat = lib.get('lensBlack', { hover: hov.focus });
-  fk.add(revolve([[21.4, F.z0], [23.9, F.flat[0] - 0.4, 0.4], [F.r, F.flat[0], 0.5, 1], [F.r, F.flat[1], 0.5, 1], [F.rs, F.scale[0]]], { segs: F.ribs * 6, crease: 30, ribs: { n: F.ribs, depth: 0.30, groove: 0.5, edge: 0.2 } }), fMat);
+  fk.add(revolve([[rCore + 0.15, F.z0], [23.9, F.flat[0] - 0.4, 0.4], [F.r, F.flat[0], 0.5, 1], [F.r, F.flat[1], 0.5, 1], [F.rs, F.scale[0]]], { segs: F.ribs * 6, crease: 30, ribs: { n: F.ribs, depth: 0.30, groove: 0.5, edge: 0.2 } }), fMat);
   fk.add(bandRow(revolve([[F.rs, F.scale[0]], [F.rs, F.scale[1]]], { segs: 160, uv: 'band' }), 0), eng(hov.focus));
-  fk.add(revolve([[F.rs, F.scale[1]], [F.rs - 0.5, F.scale[1] + 0.2], [23.0, Dd.z0 + 0.05]], { segs: 128 }), fMat);
+  fk.add(revolve([[F.rs, F.scale[1]], [F.rs - 0.5, F.scale[1] + 0.2], [Math.min(23.0, rInnerFixed), Dd.z0 + 0.4]], { segs: 128 }), fMat);
   if (def.focusTab) {
     // Iconic sculpted concave curved ergonomic Leica M focusing tab at 6 o'clock (rotates physically with focus ring!)
     const tabS = new THREE.Shape();
@@ -1186,7 +1297,10 @@ function buildLens(lib, lens, hov) {
   // the unit the helicoid moves forward: the tube (with micro screws + 135/4 optical-head bayonet collar!), aperture ring, sculpted front
   const ext = new THREE.Group(); group.add(ext);
   const ek = new Kit(), Tb = def.tube;
-  ek.add(revolve([[Tb.r, Tb.z0], [Tb.r, Tb.z1]], { segs: 96 }), bk);
+  const zTubeBack = Math.min(-2.8, Math.max(Tb.z1, F.z0 + maxExt + 4.5));
+  ek.add(revolve([[Tb.r, Tb.z0], [Tb.r, Math.min(Dd.z0 - 0.5, zTubeBack)]], { segs: 96 }), bk);
+  // Telescoping black-anodized inner helicoid barrel sealing aperture/tube/focus across full close-focus extension
+  ek.add(revolve([[rCore, Fr.z0 + Fr.recess], [rCore, zTubeBack]], { segs: 84 }), anod);
   Tb.screws.forEach((a) => addScrew(ek, steel, ek, flock, radialT(a * DEG, Tb.r + 0.02, (A.z1 + F.z0) / 2), 0.58, false));
   if (def.profile === 'tele135') {
     // Signature Tele-Elmar 135/4 bright machined chrome removable optical-head seam collar at mid-barrel!
@@ -1194,15 +1308,15 @@ function buildLens(lib, lens, hov) {
   }
   const aperture = new THREE.Group(); ext.add(aperture);
   const ak = new Kit(), aMat = lib.get('lensBlack', { hover: hov.aperture });
-  ak.add(revolve([[20.5, A.z0], [21.8, A.z0, 0.4], [A.r, A.flat[0], 0.6]], { segs: 160, crease: 30 }), aMat);
-  ak.add(revolve([[A.r, A.flat[1], 0.6], [22.4, A.z1, 0.4], [Tb.r, A.z1]], { segs: 160, crease: 30 }), aMat);
+  ak.add(revolve([[rCore, A.z0], [21.8, A.z0, 0.4], [A.r, A.flat[0], 0.6]], { segs: 160, crease: 30 }), aMat);
+  ak.add(revolve([[A.r, A.flat[1], 0.6], [22.4, A.z1, 0.4], [rCore, A.z1]], { segs: 160, crease: 30 }), aMat);
   ak.add(bandRow(revolve([[A.r, A.flat[0]], [A.r, A.flat[1]]], { segs: 64, uv: 'band', phi0: A.patch[0] * DEG, phiLen: (A.patch[1] - A.patch[0]) * DEG }), 2, A.patch[0] * DEG, (A.patch[1] - A.patch[0]) * DEG), eng(hov.aperture));
   knurl(ak, aMat, A.r, A.flat[0], A.flat[1], A.knurl, A.patch[1], 360 + A.patch[0]);
   const apertureMeshes = ak.build(aperture, 'aperture');
   // the front: sculpted per-lens rim, exposed machined filter-lip chamfer, stepped filter threads, conical beauty ring & spanner-notched retaining bezel!
   const zF = Fr.z0;
   ek.add(revolve([[Fr.thread, zF], [Fr.r - 0.4, zF, 0.6], [Fr.r, zF + 0.4, 0.6], [Fr.r, Fr.lip[0] - 0.1, 0.2], [Fr.lip[2], Fr.lip[0] + 0.2, 0.4], [Fr.lip[2], Fr.lip[1], 0.4],
-    [Fr.groove[2], Fr.groove[0]], [Fr.groove[2], Fr.groove[1]], [Fr.r, Fr.band[0], 0.3], [Fr.r, Fr.band[1], 0.3], [Fr.groove2[2], Fr.groove2[0]], [Fr.groove2[2], A.z0]], { segs: 128, crease: 30 }), bk);
+    [Fr.groove[2], Fr.groove[0]], [Fr.groove[2], Fr.groove[1]], [Fr.r, Fr.band[0], 0.3], [Fr.r, Fr.band[1], 0.3], [Fr.groove2[2], Fr.groove2[0]], [Fr.groove2[2], A.z0], [rCore, A.z0 + 0.2]], { segs: 128, crease: 30 }), bk);
   // Subtle exposed machined bright-aluminum chamfer right at the filter mouth rim (catches studio highlight like real Leica brass/aluminum!)
   ek.add(revolve([[Fr.thread - 0.04, zF + 0.22], [Fr.thread + 0.22, zF - 0.02]], { segs: 96 }), steel);
   if (def.profile === 'fast50') {
@@ -1210,11 +1324,11 @@ function buildLens(lib, lens, hov) {
     ek.add(revolve([[Fr.r + 0.04, Fr.band[1] + 0.2], [Fr.r + 0.22, Fr.band[1] + 0.4, 0.15], [Fr.r + 0.22, Fr.band[1] + 1.0, 0.15], [Fr.r - 0.05, Fr.band[1] + 1.2]], { segs: 96 }), chrome);
   }
   ek.add(new THREE.SphereGeometry(0.5, 12, 8), lib.get('white'), T(0, Fr.r - 0.2, Fr.dot));
-  ek.add(revolve([[Fr.thread, zF + Fr.recess], [Fr.thread, zF]], { segs: 96 }), flock);
+  ek.add(revolve([[Fr.thread, zF + Fr.recess + 0.8], [Fr.thread, zF]], { segs: 96 }), flock);
   for (let k = 0; k < 5; k++) ek.add(new THREE.TorusGeometry(Fr.thread - 0.05, 0.12, 4, 96), flock, T(0, 0, zF + 0.4 + k * 0.5));
   const rInnerFace = Math.min(Fr.thread - 3.2, Fr.glassR + (def.funnelPad ?? 0.5));
-  const rOuterFace = Fr.thread - 0.15;
-  // Conical outward-facing engraved front beauty ring!
+  const rOuterFace = Fr.thread + 0.08;
+  // Conical outward-facing engraved front beauty ring tucked seamlessly inside the filter thread bore (zero perimeter light leak!)
   const ring = new THREE.RingGeometry(rInnerFace, rOuterFace, 96); ring.rotateY(Math.PI);
   const rPos = ring.attributes.position;
   for (let i = 0; i < rPos.count; i++) {
@@ -1230,14 +1344,14 @@ function buildLens(lib, lens, hov) {
   if (funnelGap >= 1.0) {
     const bafProf = [];
     for (let i = 0; i < 3; i++) {
-      const rA = lerp(rInnerFace, Fr.glassR + 0.2, i / 3), rB = lerp(rInnerFace, Fr.glassR + 0.2, (i + 1) / 3);
-      const zA = lerp(zF + Fr.recess + 0.4, zGlassEdge, i / 3), zB = lerp(zF + Fr.recess + 0.4, zGlassEdge, (i + 1) / 3);
-      bafProf.push([rA, zA], [rA - 0.22, zB], [rB, zB]);
+      const rA = lerp(rInnerFace + 0.12, Fr.glassR + 0.2, i / 3), rB = lerp(rInnerFace + 0.12, Fr.glassR + 0.2, (i + 1) / 3);
+      const zA = lerp(zF + Fr.recess + 0.35, zGlassEdge, i / 3), zB = lerp(zF + Fr.recess + 0.35, zGlassEdge, (i + 1) / 3);
+      bafProf.push([rB, zB], [rA - 0.22, zB], [rA, zA]);
     }
-    ek.add(revolve(bafProf, { segs: 72, crease: 20 }), flock);
+    ek.add(revolve(bafProf.reverse(), { segs: 72, crease: 20 }), flock);
   }
-  // Machined front glass retaining lock-ring + iconic DUAL OPPOSING SPANNER-WRENCH NOTCHES (180° apart!)
-  ek.add(revolve([[Fr.glassR + 0.65, zGlassEdge - 0.1], [Fr.glassR + 0.12, zGlassEdge - 0.42, 0.12], [Fr.glassR - 0.05, zGlassEdge + 0.05]], { segs: 96 }), bk);
+  // Machined forward-facing front glass retaining lock-ring (dr > 0 -> nz < 0!) + iconic DUAL OPPOSING SPANNER-WRENCH NOTCHES (180° apart!)
+  ek.add(revolve([[Fr.glassR - 0.1, zGlassEdge + 0.05], [Fr.glassR + 0.15, zGlassEdge - 0.42, 0.12], [Math.max(Fr.glassR + 0.65, rInnerFace + 0.12), zGlassEdge - 0.1]], { segs: 96 }), bk);
   [-1, 1].forEach((s) => ek.add(rbox(1.5, 0.55, 0.45, 0.08, 1), flock, T(s * (Fr.glassR + 0.32), 0, zGlassEdge - 0.35)));
   ek.add(new THREE.CircleGeometry(Fr.glassR + 0.4, 48), flock, T(0, 0, zGlassEdge + 0.45, 0, Math.PI, 0));
   ek.build(ext);

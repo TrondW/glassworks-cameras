@@ -1032,11 +1032,19 @@ function buildLens(lib, lens, hov) {
   const glassMat = lib.prepare(lib.base.glass.clone(), { lensGlass: lensGlassU });
 
   const L = def.L;
+  const maxExt = helicoidExtensionMm(lens, lens.minFocusDistance || 0.45);
+  const zF0 = -18.0;
+  const zF1 = def.builtInHood ? -(L - def.hoodLen - 1.2) : def.profile === 'flare' ? -(L - 12.0) : def.profile === 'stepped' ? -(L - 13.0) : -Math.max(30.0, L - 6.5);
+  const rInnerFixed = Math.min(def.rMount - 2.2, def.rAp - 0.55, def.rFocus - 0.85);
+  const rSleeve = Math.min(def.rFront - 0.55, def.rFocus - 1.6, rInnerFixed - 0.4);
+  const zSleeveBack = Math.min(-2.5, Math.max(zF1 + maxExt + 5.0, zF1 + 8.0));
   const fixed = new Kit();
+  // Continuous matte-black inner stationary barrel housing sealing mount/aperture/DoF/focus seams
+  fixed.add(revolve([[rInnerFixed, zF1 + 0.6], [rInnerFixed, -0.3]], { segs: 84 }), lib.get('anod'));
   // Stainless F-mount rear ring + iconic scalloped silver mounting grip ring (n=36, segs=288!) + silver DoF band
-  fixed.add(revolve([[def.rMount - 2.2, 0], [def.rMount - 0.6, -0.8, 0.3], [def.rMount - 0.6, -2.0]], { segs: 96, crease: 30 }), chrome);
-  fixed.add(revolve([[def.rAp, -10.8], [def.rAp + 0.55, -11.2, 0.35, 1], [def.rAp + 0.55, -13.6, 0.35, 1], [def.rAp, -14.0]], { segs: 288, crease: 28, ribs: { n: 36, depth: 0.30, groove: 0.48, edge: 0.16 } }), chrome);
-  fixed.add(bandRow(revolve([[def.rAp, -17.8], [def.rAp, -13.8]], { segs: 96, uv: 'band' }), 1), eng(null));
+  fixed.add(revolve([[def.rMount - 2.2, 0], [def.rMount - 0.6, -0.8, 0.3], [def.rMount - 0.6, -2.4], [def.rAp - 0.6, -2.4]], { segs: 96, crease: 30 }), chrome);
+  fixed.add(revolve([[def.rAp - 0.5, -10.6], [def.rAp, -10.8], [def.rAp + 0.55, -11.2, 0.35, 1], [def.rAp + 0.55, -13.6, 0.35, 1], [def.rAp, -14.0]], { segs: 288, crease: 28, ribs: { n: 36, depth: 0.30, groove: 0.48, edge: 0.16 } }), chrome);
+  fixed.add(bandRow(revolve([[def.rAp, -18.2], [def.rAp, -13.8]], { segs: 96, uv: 'band' }), 1), eng(null));
   // Raised red Infrared (R) focus index dot flanking the central DoF mark + black mounting dot on scalloped chrome grip
   fixed.add(new THREE.SphereGeometry(0.52, 12, 10), lib.get('red'), radialT(7.5 * DEG, def.rAp + 0.05, -16.8));
   fixed.add(new THREE.SphereGeometry(0.65, 12, 10), bk, radialT(0, def.rAp + 0.45, -12.4));
@@ -1066,8 +1074,6 @@ function buildLens(lib, lens, hov) {
   // Wide AI-S True 3D Multi-Row Checkerboard Waffle Rubber Focusing Ring (n=72, segs=576!) + Orange ft / White m Distance Scale
   const focus = new THREE.Group(); group.add(focus);
   const fk = new Kit(), fMat = lib.get('knurl', { hover: hov.focus });
-  const zF0 = -18.0;
-  const zF1 = def.builtInHood ? -(L - def.hoodLen - 1.2) : def.profile === 'flare' ? -(L - 12.0) : def.profile === 'stepped' ? -(L - 13.0) : -Math.max(30.0, L - 6.5);
   fk.add(bandRow(revolve([[def.rFocus - 0.5, zF0 - 5.6], [def.rFocus - 0.5, zF0]], { segs: 120, uv: 'band' }), 0), eng(hov.focus));
   const zW0 = zF0 - 5.6, wSpan = zW0 - zF1, wRows = wSpan > 16.0 ? 4 : wSpan > 9.5 ? 3 : 2;
   const wProf = [[def.rFocus - 0.3, zW0]];
@@ -1079,13 +1085,15 @@ function buildLens(lib, lens, hov) {
   wProf.push([def.rFocus - 0.3, zF1]);
   fk.add(revolve(wProf, { segs: 576, ribs: { n: 72, depth: 0.46, groove: 0.46, edge: 0.18 } }), fMat);
   fk.add(revolve([[def.rFocus - 0.35, zW0 + 0.1], [def.rFocus - 0.02, zW0 - 0.05], [def.rFocus - 0.02, zW0 - 0.48], [def.rFocus - 0.35, zW0 - 0.58]], { segs: 96, crease: 26 }), bk);
+  // Forward-facing front seal flange closing focus ring onto telescoping helicoid sleeve (dr > 0 -> nz < 0!)
+  fk.add(revolve([[rSleeve + 0.15, zF1], [def.rFocus - 0.25, zF1]], { segs: 96 }), bk);
   if (def.profile === 'portrait' || def.profile === 'tele135' || def.profile === 'stepped') {
     const rTrim = def.builtInHood ? def.rFocus - 0.35 : def.rFront + 0.25;
-    fk.add(revolve([[rTrim, zF1 + 0.3], [rTrim + 0.35, zF1, 0.2], [rTrim + 0.35, zF1 - 1.1, 0.2], [rTrim - 0.1, zF1 - 1.3]], { segs: 96, crease: 26 }), chrome);
+    fk.add(revolve([[rSleeve + 0.15, zF1 - 1.3], [rTrim - 0.1, zF1 - 1.3], [rTrim + 0.35, zF1 - 1.1, 0.2], [rTrim + 0.35, zF1, 0.2], [rTrim, zF1 + 0.3]], { segs: 96, crease: 26 }), chrome);
   }
   const focusMeshes = fk.build(focus, 'focus');
 
-  // Extending Front Barrel, 52 mm Filter Threads, Per-Lens Sculpted Taper & NIC Multi-Coated Meniscus Front Glass (Law #27!)
+  // Extending Front Barrel, Telescoping Helicoid Sleeve, 52 mm Filter Threads & NIC Multi-Coated Meniscus Front Glass (Law #27!)
   const ext = new THREE.Group(); group.add(ext);
   const ek = new Kit();
   const rInnerFace = Math.min(def.thread - 3.6, def.glassR + (def.funnelPad ?? 0.3));
@@ -1093,31 +1101,33 @@ function buildLens(lib, lens, hov) {
     // 24mm f/2.8 CRC narrow waist widening smoothly into a flared retrofocus bell w/ chrome accent ring
     ek.add(revolve([
       [def.thread, -L], [def.rFront - 0.7, -L, 0.5], [def.rFront, -L + 0.9, 0.5], [def.rFront, -L + 6.2, 0.35],
-      [def.rFocus - 0.5, zF1 + 1.2, 0.45], [def.rFocus - 1.5, zF1 + 2.0],
+      [def.rFocus - 0.5, zF1 + 1.2, 0.45], [rSleeve, zF1 + 1.8],
     ], { segs: 96, crease: 30 }), bk);
-    ek.add(revolve([[def.rFront + 0.05, -L + 6.0], [def.rFront + 0.28, -L + 6.3, 0.2], [def.rFront + 0.28, -L + 7.1, 0.2], [def.rFront - 0.15, -L + 7.4]], { segs: 96, crease: 26 }), chrome);
+    ek.add(revolve([[def.rFront - 0.5, -L + 6.0], [def.rFront + 0.28, -L + 6.3, 0.2], [def.rFront + 0.28, -L + 7.1, 0.2], [def.rFront - 1.2, -L + 7.4]], { segs: 96, crease: 26 }), chrome);
   } else if (def.profile === 'crc28') {
     // 28mm f/2.8 0.2m CRC broad rubber grip stepping cleanly inward into compact nose
     ek.add(revolve([
       [def.thread, -L], [def.rFront - 0.75, -L, 0.5], [def.rFront, -L + 0.9, 0.5], [def.rFront, zF1 + 1.2, 0.35],
-      [def.rFocus - 0.6, zF1 + 2.0],
+      [rSleeve, zF1 + 1.8],
     ], { segs: 96, crease: 30 }), bk);
   } else if (def.profile === 'stepped') {
     // 35mm f/2 slender documentary two-step front barrel
     ek.add(revolve([
       [def.thread, -L], [def.rFront - 0.7, -L, 0.5], [def.rFront, -L + 0.9, 0.5], [def.rFront, -L + 7.5, 0.35],
-      [def.rFront + 1.1, -L + 9.2, 0.4], [def.rFront + 1.1, zF1 + 0.8], [def.rFocus - 1.4, zF1 + 2.0],
+      [def.rFront + 1.1, -L + 9.2, 0.4], [def.rFront + 1.1, zF1 + 0.8], [rSleeve, zF1 + 1.8],
     ], { segs: 96, crease: 30 }), bk);
   } else if (def.profile === 'portrait') {
     // 85mm f/2 compact portrait tapered bell + bold front chrome hairline trim
     ek.add(revolve([
       [def.thread, -L], [def.rFront - 0.75, -L, 0.55], [def.rFront, -L + 1.0, 0.55], [def.rFront, -L + 7.6, 0.4],
-      [def.rFocus - 0.4, zF1 + 0.8, 0.4], [def.rFocus - 1.5, zF1 + 2.0],
+      [def.rFocus - 0.4, zF1 + 0.8, 0.4], [rSleeve, zF1 + 1.8],
     ], { segs: 96, crease: 30 }), bk);
   } else {
     // 50mm f/1.4 (locked exact envelope!), 105mm f/2.5 & 135mm f/2.8 inner barrels (clad by permanently-parked sliding hoods!)
-    ek.add(revolve([[def.thread, -L], [def.rFront - 0.7, -L, 0.5], [def.rFront, -L + 0.9, 0.5], [def.rFront, zF1 + 1.0], [def.rFocus - 1.5, zF1 + 2.0]], { segs: 96, crease: 30 }), bk);
+    ek.add(revolve([[def.thread, -L], [def.rFront - 0.7, -L, 0.5], [def.rFront, -L + 0.9, 0.5], [def.rFront, zF1 + 1.0], [rSleeve, zF1 + 1.8]], { segs: 96, crease: 30 }), bk);
   }
+  // Machined black-anodized telescoping helicoid sleeve (stays watertight inside focus ring all the way to minFocusDistance!)
+  ek.add(revolve([[rSleeve, zF1 - 0.2], [rSleeve, zSleeveBack + 0.4, 0.2], [rSleeve - 1.0, zSleeveBack]], { segs: 96, crease: 28 }), lib.get('anod'));
   // Exposed bright machined aluminum filter-mouth rim chamfer + stepped 52 mm internal filter threads
   ek.add(revolve([[def.thread - 0.08, -L + 0.24], [def.thread + 0.34, -L + 0.02]], { segs: 96 }), steel);
   const thrProf = [];
@@ -1129,11 +1139,11 @@ function buildLens(lib, lens, hov) {
   if (!def.builtInHood) {
     [-90, 90].forEach((a) => addScrew(ek, steel, ek, flock, radialT(a * DEG, def.rFront - 0.04, -L + 3.2), 0.70, false, 0.2));
   }
-  const ring = new THREE.RingGeometry(rInnerFace, def.thread - 0.2, 84); ring.rotateY(Math.PI);
+  const ring = new THREE.RingGeometry(rInnerFace, def.thread + 0.08, 84); ring.rotateY(Math.PI);
   const rPos = ring.attributes.position;
   for (let i = 0; i < rPos.count; i++) {
     const r = Math.hypot(rPos.getX(i), rPos.getY(i));
-    const u = Math.max(0, Math.min(1, (r - rInnerFace) / Math.max(0.1, def.thread - 0.2 - rInnerFace)));
+    const u = Math.max(0, Math.min(1, (r - rInnerFace) / Math.max(0.1, def.thread + 0.08 - rInnerFace)));
     rPos.setZ(i, lerp(-L + 3.8, -L + 2.1, u));
   }
   ring.computeVertexNormals();
@@ -1144,13 +1154,13 @@ function buildLens(lib, lens, hov) {
   if (funnelGap >= 1.1) {
     const bafProf = [];
     for (let i = 0; i < 3; i++) {
-      const rA = lerp(rInnerFace, def.glassR + 0.2, i / 3), rB = lerp(rInnerFace, def.glassR + 0.2, (i + 1) / 3);
-      const zA = lerp(-L + 3.8, zGlassEdge, i / 3), zB = lerp(-L + 3.8, zGlassEdge, (i + 1) / 3);
-      bafProf.push([rA, zA], [rA - 0.28, zB], [rB, zB]);
+      const rA = lerp(rInnerFace + 0.12, def.glassR + 0.2, i / 3), rB = lerp(rInnerFace + 0.12, def.glassR + 0.2, (i + 1) / 3);
+      const zA = lerp(-L + 3.75, zGlassEdge, i / 3), zB = lerp(-L + 3.75, zGlassEdge, (i + 1) / 3);
+      bafProf.push([rB, zB], [rA - 0.28, zB], [rA, zA]);
     }
-    ek.add(revolve(bafProf, { segs: 72, crease: 20 }), intBlk);
+    ek.add(revolve(bafProf.reverse(), { segs: 72, crease: 20 }), intBlk);
   } else {
-    ek.add(revolve([[rInnerFace + 0.1, -L + 3.75], [def.glassR + 0.35, -L + 3.45, 0.15], [def.glassR + 0.1, zGlassEdge]], { segs: 84 }), bk);
+    ek.add(revolve([[def.glassR - 0.1, zGlassEdge], [def.glassR + 0.35, -L + 3.45, 0.15], [rInnerFace + 0.12, -L + 3.75]], { segs: 84 }), bk);
   }
   // Dual opposing front retaining-ring spanner-wrench notches (180° apart!)
   [-1, 1].forEach((s) => ek.add(rbox(1.45, 0.56, 0.52, 0.08, 1), intBlk, T(s * (rInnerFace + 0.42), 0, -L + 3.60)));
