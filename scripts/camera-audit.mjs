@@ -225,7 +225,7 @@ for (const kind of targetKinds) {
     const desc = CAMERAS[${JSON.stringify(kind)}];
 
     // 1. CONTRACT.md API surface check
-    const reqMethods = ['setAim', 'bodyCenter', 'worldToBody', 'ringAxisWorld', 'lensPose', 'filmOffset', 'setState', 'swapLens', 'fire', 'setCutaway', 'setExploded', 'update'];
+    const reqMethods = ['setAim', 'bodyCenter', 'worldToBody', 'ringAxisWorld', 'lensPose', 'filmOffset', 'setState', 'swapLens', 'fire', 'setCutaway', 'setExploded', 'opticalState', 'update'];
     const missingApi = reqMethods.filter((m) => typeof cam[m] !== 'function');
     if (!cam.root || !cam.pickables) missingApi.push('root/pickables');
 

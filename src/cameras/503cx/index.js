@@ -3372,6 +3372,38 @@ export function createCamera503({ lens, tripod: withTripod = true }) {
     /** parts and their frames, for picking proxies and part cards */
     get parts() { return { mm, body, box, mag, magMount, lensMount, finderMount, finder, lens: L, head }; },
     st,
+    opticalState() {
+      const ap = L.lens.apertureStops || [2.8, 4, 5.6, 8, 11, 16, 22];
+      const Nwork = live?.aperture ?? ap[0];
+      const stopped = Boolean(st.dofK > 0.5 || st.leafK < 0.98 || st.mirrorK > 0.05 || st.pre > 0.05);
+      const N = stopped ? Nwork : ap[0];
+      const fCal = lensOpticsFor(L.lens).focalCalMm || L.lens.focalLength || 80;
+      const lensOn = st.lensOut < 0.05 && st.explodeK < 0.05;
+      const darkSlideOut = st.slideOut > 0.95;
+      const filmPath = (lensOn && st.magOff < 0.05 && darkSlideOut) ? +(st.leafK * st.mirrorK * st.auxK).toFixed(4) : 0;
+      return {
+        shutterKind: 'leaf',
+        blades: IRIS.n,
+        shutterBlades: 5,
+        fNumberSelected: +Nwork.toFixed(2),
+        fNumberEffective: +N.toFixed(2),
+        apertureMm: +(fCal / N).toFixed(2),
+        irisRadiusMm: +THREE.MathUtils.clamp(st.iris, IRIS.rMin, IRIS.rMax).toFixed(2),
+        shutterOpen: +st.leafK.toFixed(4),
+        auxOpen: +st.auxK.toFixed(4),
+        mirrorUp: +st.mirrorK.toFixed(4),
+        darkSlideOut,
+        lightReachesFilm: filmPath,
+        lightReachesFinder: lensOn ? +(st.leafK * (1 - st.mirrorK)).toFixed(4) : 0,
+        zIrisMm: +(DIM.flange + L.zBl + 1.85 - st.focusExt).toFixed(2),
+        zShutterMm: +(DIM.flange + L.zBl - st.focusExt).toFixed(2),
+        zFilmMm: 0,
+        zFlangeMm: DIM.flange,
+        focalMm: fCal,
+        pupilMag: lensOpticsFor(L.lens).pupilMag ?? 1.0,
+        focusExtMm: +st.focusExt.toFixed(3),
+      };
+    },
     /** the two signal windows: red (released / exposed) or white (wound) */
     setSignals(bodyRed, magRed) {
       body.status.material.color.set(bodyRed ? '#c8261e' : '#f2f2ec');

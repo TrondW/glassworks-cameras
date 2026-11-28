@@ -13,6 +13,7 @@ import { INK, PAINT_BG } from '../../lib/engrave.js';
 import { addScrew, radialT, rbox, revolve, rrPath, slab } from '../../lib/geometry.js';
 import { MatLib, baseMaterials } from '../../lib/materials.js';
 import { Kit, mergeStaticRigid, prep } from '../../lib/mesh.js';
+import { computeIrisSpec, createIrisDiaphragm, createLeafShutter, createClearFrontGlass, buildSteppedBaffleTube } from '../../lib/diaphragm.js';
 import { buildHead, buildTripod } from '../../lib/rig.js';
 import { brushedMap } from '../../lib/textures.js';
 import { DEG, T, TAU, easeInOut, easeOutBack, lerp, phase } from '../../lib/util.js';
@@ -1173,15 +1174,10 @@ function buildRolleiBody(lib, hov, initialLens) {
   board.add(release);
 
   // ───────── TWIN KISSING BAY III LENSES (46.3 mm pitch, true 30 mm f/2.8 apertures, double-stepped Bay III flanges & deep conical beauty rings — zoom_04, zoom_05!) ─────────
-  // LENS_GLASS_GLSL Local-Origin Invariant: BOTH front glass meshes stay standalone local-origin meshes in `dyn`!
-  // Lower Planar 80/2.8: warm amber-gold Zeiss coating + closed 5-blade Compur star-seam at rest (gR = 15.4 mm!)
-  // Upper Heidosmat 80/2.8: cool violet-lavender viewing coating + open viewing barrel depth (gR = 14.8 mm!)
-  const takeGlassU = { blades: 5, optics: { value: new THREE.Vector4(14.3, 0.0, 15.4, 12.6) }, state: { value: new THREE.Vector4(0, 1.0, 0, 0) },
-    ghostA: { value: new THREE.Color(1.30, 0.88, 0.40) }, ghostB: { value: new THREE.Color(0.92, 0.62, 0.36) } };
-  const viewGlassU = { blades: 10, optics: { value: new THREE.Vector4(13.8, 1.0, 14.8, 12.2) }, state: { value: new THREE.Vector4(0.18, 1.0, 0, 0) },
-    ghostA: { value: new THREE.Color(0.92, 0.56, 1.24) }, ghostB: { value: new THREE.Color(0.58, 0.70, 1.18) } };
-  const takeGlassMat = lib.prepare(lib.base.glass.clone(), { lensGlass: takeGlassU });
-  const viewGlassMat = lib.prepare(lib.base.glass.clone(), { lensGlass: viewGlassU });
+  // Clear multi-coated front elements revealing REAL 3D 5-blade Synchro-Compur MXV leaf shutter (closed at rest!) + 5-blade Planar iris inside!
+  // Lower Planar 80/2.8: warm amber-gold Zeiss coating (gR = 15.4 mm); Upper Heidosmat 80/2.8: cool violet-lavender viewing coating (gR = 14.8 mm)
+  const takeGlassMat = createClearFrontGlass(lib, { name: 'rolleiTakeFrontGlass', color: 0x0b0805, opacity: 0.11, iridescence: 0.80, thicknessMin: 280, thicknessMax: 480 });
+  const viewGlassMat = createClearFrontGlass(lib, { name: 'rolleiViewFrontGlass', color: 0x07050c, opacity: 0.11, iridescence: 0.84, thicknessMin: 340, thicknessMax: 560 });
 
   // Lower Planar brushed-silver SYNCHRO-COMPUR outer collar w/ unobstructed bottom legend, twin inner pinstripes & 4 recessed faceplate screws!
   {
@@ -1233,16 +1229,53 @@ function buildRolleiBody(lib, hov, initialLens) {
     fk.add(revolve([[gR + 0.45, z0 - 8.95], [gR + 0.45, z0 - 9.45, 0.2], [gR - 0.15, z0 - 9.45], [gR - 0.15, z0 - 7.8]], { segs: 72 }), bk, T(0, cy, 0));
     fk.add(revolve([[gR + 0.20, z0 - 9.46], [gR + 0.48, z0 - 9.40]], { segs: 72 }), lib.get('steel'), T(0, cy, 0));
     [-1, 1].forEach((s) => fk.add(rbox(1.25, 0.48, 0.44, 0.06, 1), intBlk, T(s * (gR + 0.35), cy, z0 - 9.48)));
-    fk.add(new THREE.CircleGeometry(gR + 0.1, 48), intBlk, T(0, cy, z0 - 7.4, 0, Math.PI, 0));
+    // Hollow stepped matte-black anti-reflection optical barrel leading down to the Synchro-Compur / Heidosmat chamber
+    fk.add(buildSteppedBaffleTube(gR + 0.05, z0 - 8.9, gR - 1.2, z0 + 2.5, 4), intBlk, T(0, cy, 0));
     // Properly recessed convex front lanthanum-crown glass element (apex cleanly recessed ~1.8 mm behind Bay III rim -> ZERO bug-eyed bulge!)
     const glassMesh = new THREE.Mesh(prep(revolve([[0, z0 - 11.4], [gR * 0.45, z0 - 10.9], [gR * 0.8, z0 - 9.95], [gR, z0 - 9.0]], { segs: 64 })), glassMat);
     glassMesh.position.set(0, cy, 0);
+    glassMesh.renderOrder = 2;
+    glassMesh.userData.noShadow = true;
     board.add(glassMesh);
     return glassMesh;
   };
   const viewGlass = addBarrel(DIM.viewY, viewGlassMat, 'Heidosmat  1:2,8/80', '892409', 23.0, 14.8, DIM.boardZ - 5.6);
   const takeGlass = addBarrel(DIM.takeY, takeGlassMat, 'Planar  1:2,8  f=80mm', 'GLASS WORKS  Nr 3939937', 23.6, 15.4, DIM.boardZ - 7.8);
   fk.build(board);
+
+  // Real 3D 5-blade Synchro-Compur MXV Leaf Shutter (CLOSED at rest!) + 5-blade Planar Iris Diaphragm inside the taking lens!
+  const zTakeFront = DIM.boardZ - 7.8;
+  const takeShutter = createLeafShutter(lib, { rOut: 20.6, matName: 'compurLeafBlade', color: 0x262a30, metalness: 0.46, roughness: 0.38 });
+  const zTakeShutterFront = zTakeFront - 6.6;
+  const zTakeShutterCut = DIM.boardZ - 1.2;
+  takeShutter.inst.position.set(0, DIM.takeY, zTakeShutterFront);
+  board.add(takeShutter.inst);
+  const takeIrisSpec = computeIrisSpec({ blades: 5, rOut: 20.8, glassR: 15.4 });
+  const takeIris = createIrisDiaphragm(lib, takeIrisSpec, { matName: 'rolleiIrisBlade', color: 0x565d67, metalness: 0.48, roughness: 0.38, intMat: intBlk });
+  const zTakeIrisFront = zTakeFront - 4.5;
+  const zTakeIrisCut = DIM.boardZ + 1.2;
+  takeIris.group.position.set(0, DIM.takeY, zTakeIrisFront);
+  board.add(takeIris.group);
+  const takeRearTrap = new THREE.Mesh(prep(new THREE.CircleGeometry(20.6, 48)), intBlk);
+  takeRearTrap.rotation.y = Math.PI;
+  takeRearTrap.position.set(0, DIM.takeY, zTakeFront + 1.8);
+  takeRearTrap.userData.noShadow = true;
+  board.add(takeRearTrap);
+  // Wide-open viewing Heidosmat light trap (hides in cutaway / lightPath so rays pass straight to the 45° viewing mirror!)
+  const viewRearTrap = new THREE.Mesh(prep(new THREE.CircleGeometry(19.6, 48)), intBlk);
+  viewRearTrap.rotation.y = Math.PI;
+  viewRearTrap.position.set(0, DIM.viewY, DIM.boardZ - 5.6 + 1.8);
+  viewRearTrap.userData.noShadow = true;
+  board.add(viewRearTrap);
+  const syncOptics = (rIris, leafK, isCut = false, lightPath = false) => {
+    takeShutter.inst.position.z = isCut ? zTakeShutterCut : zTakeShutterFront;
+    takeIris.group.position.z = isCut ? zTakeIrisCut : zTakeIrisFront;
+    takeRearTrap.visible = !isCut && !lightPath;
+    viewRearTrap.visible = !isCut && !lightPath;
+    takeShutter.sync(leafK);
+    takeIris.sync(rIris, isCut);
+  };
+  syncOptics(takeIrisSpec.rMax, 0, false, false);
 
   // Lazy Cutaway Multi-Element Twin-Lens Optics (5-element Planar + 4-element Heidosmat)
   const inner = new THREE.Group(); inner.visible = false; board.add(inner);
@@ -1562,7 +1595,8 @@ function buildRolleiBody(lib, hov, initialLens) {
     knob, knobBase, meterPod, meterNeedle, followPointer, dofLeft, dofRight, dofBandCv, dofBandTex,
     asaDialGroup, filterRing, asaCv, asaTex, spoolKnobs, supplySpool, takeupSpool, filmWeb, filmTex, rearBlades,
     crank, crankArmPivot, crankHandle, release, selfTimerLever, apWheel, shWheel, takeGlass, viewGlass, inner, rolleinarGroup, hoodGroup, filterGroup,
-    takeGlassU, viewGlassU, screenMat, screenOverlay, parallaxMask, filterMat, ctrCv, ctrTex, evCv, evTex,
+    takeShutter, takeIris, takeIrisSpec, takeRearTrap, viewRearTrap, syncOptics, zTakeShutterCut, zTakeIrisCut,
+    screenMat, screenOverlay, parallaxMask, filterMat, ctrCv, ctrTex, evCv, evTex,
     ensureInner, ensureRolleinar, ensureHood, ensureFilter,
     focusMeshes, apertureMeshes, shutterMeshes, crankMeshes, releaseMeshes, hoodMeshes, filterMeshes,
   };
@@ -1615,6 +1649,7 @@ export function createCameraRolleiflex({ lens }) {
     R.knob, R.knobBase, R.meterPod, R.meterNeedle, R.followPointer, R.dofLeft, R.dofRight,
     R.asaDialGroup, R.filterRing, R.spoolKnobs, R.supplySpool, R.takeupSpool, R.filmWeb, ...R.rearBlades,
     R.crank, R.crankArmPivot, R.crankHandle, R.release, R.selfTimerLever, R.apWheel, R.shWheel, R.takeGlass, R.viewGlass, R.inner, R.rolleinarGroup, R.hoodGroup, R.filterGroup, R.screenOverlay, R.parallaxMask,
+    R.takeShutter.inst, R.takeIris.group, R.takeIris.irisInst, R.takeIris.fixedIris, R.takeIris.jawInst, R.takeRearTrap, R.viewRearTrap,
     head.yawMM, head.pitchMM, head.rollMM, head.bubble, blob,
   ]);
   mergeStaticRigid(root, { dynamic: dyn, lists: [R.focusMeshes, R.apertureMeshes, R.shutterMeshes, R.crankMeshes, R.releaseMeshes, R.hoodMeshes, R.filterMeshes, head.aimMeshes, head.rollMeshes] });
@@ -1802,10 +1837,10 @@ export function createCameraRolleiflex({ lens }) {
     const parallaxShift = curLens.rolleinar ? (physExt / 80.2) * DIM.viewY * 0.25 : (st.ext / fCal) * DIM.viewY;
     R.parallaxMask.position.z = -DIM.screen / 2 - 3.0 + parallaxShift;
 
-    R.takeGlassU.optics.value.set(rIris, st.leafK, 15.4, 12.6);
-    R.takeGlassU.state.value.set((1 - Math.min(1, rIris / 15)) * 0.5, 1.0, physExt, e);
-    R.viewGlassU.state.value.set(0.18, 1.0, physExt, e);
-    // 5 curved overlapping blued-steel crescent Compur blades (0 = 100% light-tight closed at rest; 0.78 rad = open during exposure!)
+    // Real 3D 5-blade Synchro-Compur MXV leaf shutter (CLOSED at rest!) + 5-blade live Planar iris diaphragm!
+    const rTakeIris = R.takeIrisSpec.rMax * (ap[0] / Math.max(ap[0], N));
+    R.syncOptics(rTakeIris, st.leafK, cutaway, Boolean(st.lightPath));
+    // Rear film-chamber 5-blade shutter blades synchronized with front Compur shutter!
     const bladeAngle = lerp(0.0, 0.78, st.leafK * Math.min(1, rIris / 14.3));
     R.rearBlades.forEach((b, i) => { b.rotation.z = (i / 5) * TAU + bladeAngle; });
 
@@ -1945,12 +1980,12 @@ export function createCameraRolleiflex({ lens }) {
       if (cut) setCutaway(true);
       await animate('press', 1, 0.08);
       if (st.selfTimerK > 0.2) await animate('selfTimerK', 0, 0.45);
-      // Leaf shutter whispers open and shut — ZERO mirror blackout on a TLR!
+      // Leaf shutter whispers smoothly open and shut — ZERO mirror blackout on a TLR!
       onSound('release');
-      st.leafK = 1;
+      await animate('leafK', 1, 0.018, (k) => k);
       await onExpose();
       await hold(Math.min(Math.max(seconds * 1000, 14), 2500));
-      st.leafK = 0;
+      await animate('leafK', 0, 0.018, (k) => k);
       onSound('close');
       await animate('press', 0, 0.08);
       // Authentic 2.8F booklet crank cycle: unfold grip OUTWARD (+X), one forward-and-back swing advances 120 film, increments counter & cocks shutter, then folds flat!
@@ -1976,6 +2011,33 @@ export function createCameraRolleiflex({ lens }) {
       await animate('crankOpen', 0, 0.14);
     },
     setCutaway(on, side = 1) { api.cutSide = side; setCutaway(on); },
+    opticalState() {
+      const ap = curLens.apertureStops, last = ap.length - 1;
+      const ai = Math.min(last, Math.max(0, st.apRot / AP_STEP)), i0 = Math.min(last - 1, Math.floor(ai));
+      const N = ap[i0] * Math.pow(ap[i0 + 1] / ap[i0], ai - i0);
+      const fCal = lensOpticsFor(curLens).focalCalMm || 80.2;
+      const physExt = curLens.rolleinar ? Math.min(8.5, st.ext * 0.45) : st.ext;
+      return {
+        shutterKind: 'leaf',
+        blades: R.takeIrisSpec.n,
+        shutterBlades: 5,
+        fNumberSelected: +N.toFixed(2),
+        fNumberEffective: +N.toFixed(2),
+        apertureMm: +(fCal / N).toFixed(2),
+        irisRadiusMm: +(R.takeIrisSpec.rMax * (ap[0] / Math.max(ap[0], N))).toFixed(2),
+        shutterOpen: +st.leafK.toFixed(4),
+        mirrorUp: 1,
+        lightReachesFilm: +st.leafK.toFixed(4),
+        lightReachesFinder: 1, // TLR dedicated Heidosmat viewing lens — zero mirror blackout!
+        zIrisMm: +(R.zTakeIrisCut - physExt).toFixed(2),
+        zShutterMm: +(R.zTakeShutterCut - physExt).toFixed(2),
+        zFilmMm: 0,
+        zFlangeMm: DIM.boardZ,
+        focalMm: fCal,
+        pupilMag: 1.0,
+        focusExtMm: +physExt.toFixed(3),
+      };
+    },
     labelAt(obj) {
       for (let o = obj; o; o = o.parent) {
         const idx = labels.findIndex((l) => l.matchRoot === o);

@@ -30,6 +30,7 @@ import { addScrew, decalUV, pointInPoly, radialT, rbox, revolve, rrPath, slab } 
 import { MatLib, baseMaterials } from '../../lib/materials.js';
 import { defer } from '../../lib/textures.js';
 import { Kit, foldSiblings, mergeStaticRigid, prep } from '../../lib/mesh.js';
+import { computeIrisSpec, createIrisDiaphragm, createClearFrontGlass, buildSteppedBaffleTube } from '../../lib/diaphragm.js';
 import { buildHead, buildTripod } from '../../lib/rig.js';
 import { DEG, FONT, T, TAU, easeInOut, lerp } from '../../lib/util.js';
 import { lensOpticsFor, helicoidExtensionMm, filterOpticsFor } from '../../optics.js';
@@ -1225,10 +1226,8 @@ function buildLens(lib, lens, hov) {
   // the bayonet flange seat stays visible at the seam; 6-screw 3-lug M bayonet, brass rangefinder cam & outward multi-coated rear glass build lazily when detached/exploded
   fixed.add(revolve([[Bay.r1, Dd.z1], [Bay.r1, 0, 0.3], [Bay.r0, 0]], { segs: 96, crease: 30 }), steel);
   const oSpec = lensOpticsFor(lens);
-  const lensGlassU = { blades: def.blades || 10,
-    optics: { value: new THREE.Vector4(13, 1.0, Fr.glassR, 12.6) }, state: { value: new THREE.Vector4(0, oSpec.pupilMag ?? 1.0, 0, 0) },
-    ghostA: { value: new THREE.Color(...(oSpec.ghostTintA || [0.6, 0.4, 0.25])) }, ghostB: { value: new THREE.Color(...(oSpec.ghostTintB || [0.3, 0.55, 0.42])) } };
-  const glassMat = lib.prepare(lib.base.glass.clone(), { lensGlass: lensGlassU });
+  // Clear multi-coated Leica front meniscus so real 3D stepped baffles & 9/10-blade iris read physically inside!
+  const glassMat = createClearFrontGlass(lib, { name: 'm6FrontGlass', color: 0x05080b, opacity: 0.11, iridescence: 0.78 });
   const rearMount = new THREE.Group(); rearMount.visible = false; group.add(rearMount);
   let rearBuilt = false;
   const ensureRear = () => {
@@ -1353,10 +1352,35 @@ function buildLens(lib, lens, hov) {
   // Machined forward-facing front glass retaining lock-ring (dr > 0 -> nz < 0!) + iconic DUAL OPPOSING SPANNER-WRENCH NOTCHES (180° apart!)
   ek.add(revolve([[Fr.glassR - 0.1, zGlassEdge + 0.05], [Fr.glassR + 0.15, zGlassEdge - 0.42, 0.12], [Math.max(Fr.glassR + 0.65, rInnerFace + 0.12), zGlassEdge - 0.1]], { segs: 96 }), bk);
   [-1, 1].forEach((s) => ek.add(rbox(1.5, 0.55, 0.45, 0.08, 1), flock, T(s * (Fr.glassR + 0.32), 0, zGlassEdge - 0.35)));
-  ek.add(new THREE.CircleGeometry(Fr.glassR + 0.4, 48), flock, T(0, 0, zGlassEdge + 0.45, 0, Math.PI, 0));
+  // Hollow stepped anti-reflection inner optical barrel + real 3D 9/10-blade Leica manual iris diaphragm!
+  const rIrisOut = Math.min(rCore - 0.35, Fr.thread - 0.6);
+  const irisSpec = computeIrisSpec({ blades: def.blades || 10, rOut: rIrisOut, glassR: Fr.glassR });
+  const zOptStart = zF + Fr.recess + 1.4, zOptEnd = -3.0;
+  const zIrisFront = zGlassEdge + 2.4;
+  const zIrisCut = lerp(zOptStart, zOptEnd, 0.51);
+  const zTrapBack = Math.min(-4.5, zIrisFront + 8.5);
+  ek.add(buildSteppedBaffleTube(Fr.glassR + 0.1, zGlassEdge, irisSpec.rFixed + 0.35, zTrapBack, 4), flock);
   ek.build(ext);
+  const iris = createIrisDiaphragm(lib, irisSpec, { matName: 'm6IrisBlade', color: 0x545b64, metalness: 0.48, roughness: 0.38, intMat: flock });
+  const { group: irisGroup, fixedIris, irisInst, jawInst } = iris;
+  irisGroup.position.z = zIrisFront;
+  ext.add(irisGroup);
+  // Matte-black light trap behind iris (hidden automatically in cutaway or straight-through lightPath simulation!)
+  const rearTrap = new THREE.Mesh(prep(new THREE.CircleGeometry(irisSpec.rPlateOut + 0.2, 48)), flock);
+  rearTrap.rotation.y = Math.PI;
+  rearTrap.position.z = zTrapBack;
+  rearTrap.userData.noShadow = true;
+  ext.add(rearTrap);
+  const syncIris = (rIris, isCut = false, lightPath = false) => {
+    irisGroup.position.z = isCut ? zIrisCut : zIrisFront;
+    rearTrap.visible = !isCut && !lightPath;
+    iris.sync(rIris, isCut);
+  };
+  syncIris(irisSpec.rMax, false, false);
   // Standalone local-origin front meniscus glass (Law #17!)
   const glassMesh = new THREE.Mesh(prep(revolve([[0, zGlassEdge - 1.15], [Fr.glassR * 0.45, zGlassEdge - 0.9], [Fr.glassR * 0.8, zGlassEdge - 0.42], [Fr.glassR + 0.1, zGlassEdge]], { segs: 64 })), glassMat);
+  glassMesh.renderOrder = 2;
+  glassMesh.userData.noShadow = true;
   ext.add(glassMesh);
   // Multi-element optical cutaway inside the lens barrel (built lazily when cutaway is enabled)
   const inner = new THREE.Group(); inner.visible = false; ext.add(inner);
@@ -1378,9 +1402,6 @@ function buildLens(lib, lens, hov) {
       ik.add(revolve(prof, { segs: 48 }), gInner);
       ik.add(revolve([[r, z0 - th * 0.5 + sag1], [r + 0.65, z0 - th * 0.5 + sag1], [r + 0.65, z0 + th * 0.5 + sag2], [r, z0 + th * 0.5 + sag2]], { segs: 48 }), rimBlack);
     });
-    // Internal brass helicoid sleeve & diaphragm stop plate
-    const zIris = lerp(zStart, zEnd, 0.51);
-    ik.add(revolve([[Fr.glassR * 0.42, zIris - 0.5], [Fr.glassR * 0.96, zIris - 0.5], [Fr.glassR * 0.96, zIris + 0.5], [Fr.glassR * 0.42, zIris + 0.5]], { segs: 48 }), lib.get('blade'));
     ik.build(inner);
     return true;
   };
@@ -1431,7 +1452,7 @@ function buildLens(lib, lens, hov) {
     filterMeshes.push(...flk.build(filterGroup, 'filter'));
     return true;
   };
-  return { group, lens, def, L: def.L, lensGlassU, glassMesh, pupilMag: oSpec.pupilMag ?? 1.0, focalMm: oSpec.focalCalMm || lens.focalLength || 50, focus, aperture, ext, inner, hoodGroup, filterGroup, rearMount, ensureInner, ensureHood, ensureFilter, ensureRear, filterMat, focusMeshes, apertureMeshes, filterMeshes };
+  return { group, lens, def, L: def.L, irisSpec, irisGroup, irisInst, fixedIris, jawInst, rearTrap, syncIris, zIrisFront, zIrisCut, glassMesh, pupilMag: oSpec.pupilMag ?? 1.0, focalMm: oSpec.focalCalMm || lens.focalLength || 50, focus, aperture, ext, inner, hoodGroup, filterGroup, rearMount, ensureInner, ensureHood, ensureFilter, ensureRear, filterMat, focusMeshes, apertureMeshes, filterMeshes };
 }
 
 // ───────── The camera ─────────
@@ -1522,7 +1543,7 @@ export function createCameraM6({ lens }) {
   root.add(blob);
 
   const lensLists = (Lx) => [Lx.focusMeshes, Lx.apertureMeshes, Lx.filterMeshes];
-  const lensDyn = (Lx) => [Lx.group, Lx.focus, Lx.ext, Lx.aperture, Lx.inner, Lx.hoodGroup, Lx.filterGroup, Lx.glassMesh, Lx.rearMount].filter(Boolean);
+  const lensDyn = (Lx) => [Lx.group, Lx.focus, Lx.ext, Lx.aperture, Lx.inner, Lx.hoodGroup, Lx.filterGroup, Lx.glassMesh, Lx.rearMount, Lx.irisGroup, Lx.irisInst, Lx.fixedIris, Lx.jawInst, Lx.rearTrap].filter(Boolean);
   const camDyn = [
     mm, body.core, body.top, body.base, body.door,
     body.curtain, body.curtain1Cloth, body.curtain1Lath, body.meterSpot, body.curtain2Cloth, body.curtain2Lath,
@@ -1643,12 +1664,12 @@ export function createCameraM6({ lens }) {
     L.focus.rotation.z = st.focusRot;
     L.aperture.rotation.z = st.apRot;
     L.ext.position.z = -st.ext;
-    // the iris as the glass shows it: the ring's own position gives the stop, so the blades move with the ring
+    // Real 3D manual rangefinder iris: moves live with the aperture ring (no auto stop-down on Leica M!)
     { const ap = L.lens.apertureStops, ai = Math.min(ap.length - 1, Math.max(0, st.apRot / AP_STEP)), i0 = Math.min(ap.length - 2, Math.floor(ai));
-      const N = ap[i0] * Math.pow(ap[i0 + 1] / ap[i0], ai - i0), rIris = L.focalMm / (2 * N) / L.pupilMag;
-      L.lensGlassU.optics.value.set(rIris, 1.0, L.def.front.glassR, 12.6);
-      L.lensGlassU.state.value.set((1 - Math.min(1, rIris / 13)) * 0.5, L.pupilMag, st.ext, Math.max(e, st.lensOut)); }
-    const mountedOnly = e <= 0.005 && st.lensOut <= 0.005 && !cutaway;
+      const N = ap[i0] * Math.pow(ap[i0 + 1] / ap[i0], ai - i0);
+      const rIris = L.irisSpec.rMax * (ap[0] / Math.max(ap[0], N));
+      L.syncIris(rIris, cutaway, Boolean(st.lightPath)); }
+    const mountedOnly = e <= 0.005 && st.lensOut <= 0.005 && !cutaway && !st.lightPath;
     body.curtain.visible = !mountedOnly || st.doorK > 0.01;
     if (!mountedOnly && L.ensureRear?.()) { mergeStaticRigid(L.rearMount, { dynamic: new Set(), lists: [] }); toLayer(L.rearMount); }
     if (L.rearMount) L.rearMount.visible = !mountedOnly;
@@ -1841,8 +1862,13 @@ export function createCameraM6({ lens }) {
       const stroke = async (turn) => {
         await animate('lever', LEVER_OUT, 0.22);
         onSound('wind');
+        await tween(0.42, (k) => {
+          st.lever = LEVER_OUT + LEVER_STROKE * k;
+          st.curtain1 = 1 - k;
+          st.curtain2 = 1 - k;
+          turn(k);
+        });
         st.curtain1 = 0; st.curtain2 = 0;
-        await tween(0.42, (k) => { st.lever = LEVER_OUT + LEVER_STROKE * k; turn(k); });
         await animate('lever', from, 0.34, (k) => 1 - Math.pow(1 - k, 2));
       };
       if (!lastFrame) await stroke((k) => { st.rewind = rw0 - k * 2.4 * TAU / 3; });
@@ -1870,6 +1896,33 @@ export function createCameraM6({ lens }) {
       if (cut) setCutaway(false);
     },
     setCutaway(on, side = 1) { api.cutSide = side; setCutaway(on); },
+    opticalState() {
+      const ap = L.lens.apertureStops, ai = Math.min(ap.length - 1, Math.max(0, st.apRot / AP_STEP)), i0 = Math.min(ap.length - 2, Math.floor(ai));
+      const N = ap[i0] * Math.pow(ap[i0 + 1] / ap[i0], ai - i0);
+      const k1 = Math.max(0, Math.min(1, st.curtain1)), k2 = Math.max(0, Math.min(1, st.curtain2));
+      const slit = Math.max(0, k1 - k2);
+      const lensOn = st.lensOut < 0.05 && st.explodeK < 0.05;
+      return {
+        shutterKind: 'focal-plane',
+        blades: L.irisSpec.n,
+        fNumberSelected: +N.toFixed(2),
+        fNumberEffective: +N.toFixed(2),
+        apertureMm: +(L.focalMm / N).toFixed(2),
+        irisRadiusMm: +(L.irisSpec.rMax * (ap[0] / Math.max(ap[0], N))).toFixed(2),
+        shutterOpen: +slit.toFixed(4),
+        slitMm: [+(lerp(18.5, -18.5, k1)).toFixed(2), +(lerp(18.5, -18.5, k2)).toFixed(2)],
+        mirrorUp: 1,
+        lightReachesFilm: lensOn ? +slit.toFixed(4) : 0,
+        lightReachesFinder: 1,
+        zIrisMm: +(DIM.flange + L.zIrisCut - st.ext).toFixed(2),
+        zShutterMm: -1.75,
+        zFilmMm: 0,
+        zFlangeMm: DIM.flange,
+        focalMm: L.focalMm,
+        pupilMag: L.pupilMag,
+        focusExtMm: +st.ext.toFixed(3),
+      };
+    },
     update(dt) {
       dt *= api.timeScale;
       for (let i = tweens.length - 1; i >= 0; i--) {

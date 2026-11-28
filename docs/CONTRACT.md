@@ -74,6 +74,7 @@ its records carry `optics` themselves. Two lookups take more than an id:
 | `setHover(part)` | A warm edge glow on one control (or none). |
 | `ringAngle(part)`, `ringValueAt(part, angle)` | A ring's angle about `ringAxisWorld()`, and the value it shows at an angle: focus in metres (10000 = ∞), aperture and speed as fractional indices. |
 | `fire({ seconds, side, onMirror, onExpose, onSound, cutaway })` | The whole firing cycle, wound on afterwards (`side`: the cutaway's side). |
+| `opticalState()` | Instantaneous physical light-simulation state: `{ shutterKind, blades, shutterBlades?, fNumberSelected, fNumberEffective, apertureMm, irisRadiusMm, shutterOpen, slitMm?, mirrorUp, darkSlideOut?, lightReachesFilm, lightReachesFinder, zIrisMm, zShutterMm, zFilmMm, zFlangeMm, focalMm, pupilMag, focusExtMm }`. |
 | `setExploded(on)`, `setCutaway(on, side)`, `labelAt(obj)`, `updateLabels(cam, el, show)` | The exploded view with its labels, and the cutaway. |
 
 ### A view camera's film holder *(a camera with the `'holder'` control)*

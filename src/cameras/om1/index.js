@@ -11,6 +11,7 @@ import { INK, PAINT_BG } from '../../lib/engrave.js';
 import { addScrew, radialT, rbox, revolve, rrPath, slab } from '../../lib/geometry.js';
 import { MatLib, baseMaterials } from '../../lib/materials.js';
 import { Kit, mergeStaticRigid, prep } from '../../lib/mesh.js';
+import { computeIrisSpec, createIrisDiaphragm, createClearFrontGlass, buildSteppedBaffleTube } from '../../lib/diaphragm.js';
 import { buildHead, buildTripod } from '../../lib/rig.js';
 import { beadBlastMaps, brushedMap, vulcaniteMaps } from '../../lib/textures.js';
 import { DEG, FONT, T, TAU, easeInOut, lerp } from '../../lib/util.js';
@@ -1056,14 +1057,8 @@ function buildLens(lib, lens, hov) {
   const atlas = lensAtlas(lens);
   const eng = (h) => lib.prepare(new THREE.MeshPhysicalMaterial({ name: `om1LensEng_${lens.id}`, color: 0xffffff, map: atlas, metalness: 0.14, roughness: 0.40 }), { hover: h, wear: 'paint' });
   const oSpec = lensOpticsFor(lens);
-  const lensGlassU = {
-    blades: def.blades || 6,
-    optics: { value: new THREE.Vector4(Math.min(14.5, def.glassR * 0.86), 1.0, def.glassR, 12.0) },
-    state: { value: new THREE.Vector4(0, oSpec.pupilMag ?? 1.0, 0, 0) },
-    ghostA: { value: new THREE.Color(...(oSpec.ghostTintA || [0.32, 0.74, 0.52])) },
-    ghostB: { value: new THREE.Color(...(oSpec.ghostTintB || [0.78, 0.48, 0.26])) },
-  };
-  const glassMat = lib.prepare(lib.base.glass.clone(), { lensGlass: lensGlassU });
+  // Clear Zuiko multi-coated optical glass so real 3D stepped baffles & 6/8-blade iris read physically inside!
+  const glassMat = createClearFrontGlass(lib, { name: 'om1FrontGlass', color: 0x05090a, opacity: 0.11, iridescence: 0.80 });
 
   const L = def.L;
   const maxExt = helicoidExtensionMm(lens, lens.minFocusDistance || 0.45);
@@ -1199,10 +1194,34 @@ function buildLens(lib, lens, hov) {
   }
   // Dual opposing front retaining-ring spanner-wrench notches (180° apart!)
   [-1, 1].forEach((s) => ek.add(rbox(1.4, 0.54, 0.50, 0.08, 1), intBlk, T(s * (rInnerFace + 0.42), 0, -L + 3.42)));
-  ek.add(new THREE.CircleGeometry(def.glassR + 0.3, 48), intBlk, T(0, 0, zGlassEdge + 0.8, 0, Math.PI, 0));
+  // Hollow stepped anti-reflection inner optical barrel + real 3D 6/8-blade Zuiko iris diaphragm!
+  const rIrisOut = Math.min(rSleeve - 0.5, def.thread - 0.6);
+  const irisSpec = computeIrisSpec({ blades: def.blades || 6, rOut: rIrisOut, glassR: def.glassR });
+  const zOptStart = -L + 4.8, zOptEnd = -3.6;
+  const zIrisFront = zGlassEdge + 2.4;
+  const zIrisCut = lerp(zOptStart, zOptEnd, 0.50);
+  const zTrapBack = Math.min(-4.4, zIrisFront + 8.5);
+  ek.add(buildSteppedBaffleTube(def.glassR + 0.15, zGlassEdge, irisSpec.rFixed + 0.35, zTrapBack, 4), intBlk);
   ek.build(ext);
-  // Standalone local-origin glass mesh (Law #17: LENS_GLASS_GLSL local-origin invariant!)
+  const iris = createIrisDiaphragm(lib, irisSpec, { matName: 'om1IrisBlade', color: 0x5c636e, metalness: 0.50, roughness: 0.36, intMat: intBlk });
+  const { group: irisGroup, fixedIris, irisInst, jawInst } = iris;
+  irisGroup.position.z = zIrisFront;
+  ext.add(irisGroup);
+  const rearTrap = new THREE.Mesh(prep(new THREE.CircleGeometry(irisSpec.rPlateOut + 0.2, 48)), intBlk);
+  rearTrap.rotation.y = Math.PI;
+  rearTrap.position.z = zTrapBack;
+  rearTrap.userData.noShadow = true;
+  ext.add(rearTrap);
+  const syncIris = (rIris, isCut = false, lightPath = false) => {
+    irisGroup.position.z = isCut ? zIrisCut : zIrisFront;
+    rearTrap.visible = !isCut && !lightPath;
+    iris.sync(rIris, isCut);
+  };
+  syncIris(irisSpec.rMax, false, false);
+  // Standalone local-origin glass mesh (Law #17!)
   const glassMesh = new THREE.Mesh(prep(revolve([[0, zGlassEdge - 1.5], [def.glassR * 0.45, zGlassEdge - 1.1], [def.glassR * 0.8, zGlassEdge - 0.5], [def.glassR + 0.2, zGlassEdge]], { segs: 64 })), glassMat);
+  glassMesh.renderOrder = 2;
+  glassMesh.userData.noShadow = true;
   ext.add(glassMesh);
 
   // Lazy 3D Stainless Olympus OM-Mount Rear Bayonet Hardware (built when detached / exploded — Law #27!)
@@ -1258,8 +1277,6 @@ function buildLens(lib, lens, hov) {
       ik.add(revolve(prof, { segs: 48 }), gInner);
       ik.add(revolve([[r, z0 - th * 0.5 + sag1], [r + 0.7, z0 - th * 0.5 + sag1], [r + 0.7, z0 + th * 0.5 + sag2], [r, z0 + th * 0.5 + sag2]], { segs: 48 }), rimBlack);
     });
-    const zIris = lerp(zStart, zEnd, 0.50);
-    ik.add(revolve([[def.glassR * 0.4, zIris - 0.5], [def.rFront - 2.0, zIris - 0.5], [def.rFront - 2.0, zIris + 0.5], [def.glassR * 0.4, zIris + 0.5]], { segs: 48 }), lib.get('blade'));
     ik.build(inner);
     return true;
   };
@@ -1308,7 +1325,7 @@ function buildLens(lib, lens, hov) {
     return true;
   };
 
-  return { group, lens, def, L, lensGlassU, glassMesh, rearMount, dofButton, pupilMag: oSpec.pupilMag ?? 1.0, focalMm: oSpec.focalCalMm || lens.focalLength || 50, focus, aperture, ext, inner, hoodGroup, filterGroup, filterMat, ensureRear, ensureInner, ensureHood, ensureFilter, focusMeshes, apertureMeshes, filterMeshes };
+  return { group, lens, def, L, irisSpec, irisGroup, irisInst, fixedIris, jawInst, rearTrap, syncIris, zIrisFront, zIrisCut, glassMesh, rearMount, dofButton, pupilMag: oSpec.pupilMag ?? 1.0, focalMm: oSpec.focalCalMm || lens.focalLength || 50, focus, aperture, ext, inner, hoodGroup, filterGroup, filterMat, ensureRear, ensureInner, ensureHood, ensureFilter, focusMeshes, apertureMeshes, filterMeshes };
 }
 
 // ───────── The Camera Factory ─────────
@@ -1365,7 +1382,7 @@ export function createCameraOM1({ lens }) {
   root.add(blob);
 
   const lensLists = (Lx) => [Lx.focusMeshes, Lx.apertureMeshes, Lx.filterMeshes];
-  const lensDyn = (Lx) => [Lx.group, Lx.focus, Lx.ext, Lx.aperture, Lx.dofButton, Lx.inner, Lx.hoodGroup, Lx.filterGroup, Lx.glassMesh, Lx.rearMount].filter(Boolean);
+  const lensDyn = (Lx) => [Lx.group, Lx.focus, Lx.ext, Lx.aperture, Lx.dofButton, Lx.inner, Lx.hoodGroup, Lx.filterGroup, Lx.glassMesh, Lx.rearMount, Lx.irisGroup, Lx.irisInst, Lx.fixedIris, Lx.jawInst, Lx.rearTrap].filter(Boolean);
   const camDyn = [
     mm, body.core, body.top, body.bottom, body.door, body.mirrorPivot, body.selfTimer, body.shutterRing,
     body.rKnob, body.mluKnob, body.syncSwitch, body.focusScreen, body.meterSwitch, body.asaDial,
@@ -1455,17 +1472,15 @@ export function createCameraOM1({ lens }) {
       const dofR = L.def.rMount + 0.5 - 1.2 * st.dofK;
       L.dofButton.position.set(Math.cos(-38 * DEG) * dofR, Math.sin(-38 * DEG) * dofR, -3.2);
     }
-    // Automatic Zuiko OM diaphragm: wide open at rest for bright viewing; stops smoothly down on DoF button (st.dofK) or exposure (st.mirrorK)!
+    // Automatic 3D Zuiko OM diaphragm: wide open at rest for bright viewing; stops smoothly down on DoF button (st.dofK) or exposure!
     {
       const ap = L.lens.apertureStops, last = ap.length - 1;
       const ai = Math.min(last, Math.max(0, -st.apRot / AP_STEP)), i0 = Math.min(last - 1, Math.floor(ai));
       const Nwork = ap[i0] * Math.pow(ap[i0 + 1] / ap[i0], ai - i0);
-      const stopK = Math.max(0, Math.min(1, Math.max(st.dofK, st.mirrorK, st.stopDown || 0)));
+      const stopK = Math.max(0, Math.min(1, Math.max(st.dofK, st.mirrorK, st.exposing || 0, st.stopDown || 0)));
       const apN = ap[0] * Math.pow(Nwork / ap[0], stopK);
-      const rIris = Math.min(L.def.glassR * 0.86, Math.max(1.4, (L.focalMm / (2 * apN)) / L.pupilMag));
-      L.lensGlassU.optics.value.x = rIris;
-      L.lensGlassU.optics.value.y = 1.0;
-      L.lensGlassU.state.value.w = Math.min(1, e * 1.4 + st.lensOut);
+      const rIris = L.irisSpec.rMax * (ap[0] / Math.max(ap[0], apN));
+      L.syncIris(rIris, cutaway, Boolean(st.lightPath));
     }
     const rearVis = e > 0.001 || st.lensOut > 0.001;
     if (rearVis && L.ensureRear?.()) toLayer(L.rearMount);
@@ -1623,8 +1638,12 @@ export function createCameraOM1({ lens }) {
       if (cut) setCutaway(true);
       await animate('press', 1, 0.08);
       onSound('release');
-      onMirror(true);
-      await animate('mirrorK', 1, 0.05);
+      const mlu = (st.mluK || 0) > 0.5;
+      st.exposing = 1;
+      if (!mlu) {
+        onMirror(true);
+        await animate('mirrorK', 1, 0.05);
+      }
       const travelSec = 0.033; // Horizontal cloth curtains (1/60 s X-sync!)
       if (seconds < 1 / 60) {
         const slitDelay = Math.max(0.004, (seconds / (1 / 60)) * travelSec);
@@ -1643,8 +1662,11 @@ export function createCameraOM1({ lens }) {
         await animate('curtain2', 1, travelSec);
       }
       onSound('close');
-      await animate('mirrorK', 0, 0.055);
-      onMirror(false);
+      st.exposing = 0;
+      if (!mlu) {
+        await animate('mirrorK', 0, 0.055);
+        onMirror(false);
+      }
       await animate('press', 0, 0.08);
       if (wind) {
         onSound('wind');
@@ -1659,7 +1681,40 @@ export function createCameraOM1({ lens }) {
       }
       if (cut) setCutaway(false);
     },
+    setMirrorLockUp(on, dur = 0.25) { return animate('mluK', on ? 1 : 0, dur); },
     setCutaway(on, side = 1) { api.cutSide = side; setCutaway(on); },
+    opticalState() {
+      const ap = L.lens.apertureStops, last = ap.length - 1;
+      const ai = Math.min(last, Math.max(0, -st.apRot / AP_STEP)), i0 = Math.min(last - 1, Math.floor(ai));
+      const Nwork = ap[i0] * Math.pow(ap[i0 + 1] / ap[i0], ai - i0);
+      const stopK = Math.max(0, Math.min(1, Math.max(st.dofK, st.mirrorK, st.exposing || 0, st.stopDown || 0)));
+      const apN = ap[0] * Math.pow(Nwork / ap[0], stopK);
+      const mirUp = Math.max(st.mirrorK, st.mluK || 0);
+      const k1 = Math.max(0, Math.min(1, st.curtain1)), k2 = Math.max(0, Math.min(1, st.curtain2));
+      const slit = Math.max(0, k1 - k2);
+      const lensOn = st.lensOut < 0.05 && st.explodeK < 0.05;
+      return {
+        shutterKind: 'focal-plane',
+        blades: L.irisSpec.n,
+        fNumberSelected: +Nwork.toFixed(2),
+        fNumberEffective: +apN.toFixed(2),
+        apertureMm: +(L.focalMm / apN).toFixed(2),
+        irisRadiusMm: +(L.irisSpec.rMax * (ap[0] / Math.max(ap[0], apN))).toFixed(2),
+        shutterOpen: +slit.toFixed(4),
+        slitMm: [+(lerp(-18.5, 18.5, k1)).toFixed(2), +(lerp(-18.5, 18.5, k2)).toFixed(2)],
+        mirrorUp: +mirUp.toFixed(4),
+        mirrorLockedUp: (st.mluK || 0) > 0.5,
+        lightReachesFilm: lensOn ? +(slit * mirUp).toFixed(4) : 0,
+        lightReachesFinder: lensOn ? +(1 - mirUp).toFixed(4) : 0,
+        zIrisMm: +(DIM.flange + L.zIrisCut - st.ext).toFixed(2),
+        zShutterMm: -1.6,
+        zFilmMm: 0,
+        zFlangeMm: DIM.flange,
+        focalMm: L.focalMm,
+        pupilMag: L.pupilMag,
+        focusExtMm: +st.ext.toFixed(3),
+      };
+    },
     labelAt(obj) {
       let cur = obj;
       while (cur) {

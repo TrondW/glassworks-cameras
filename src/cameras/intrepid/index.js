@@ -32,7 +32,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { addScrew, revolve, rrPath, rbox, slab } from '../../lib/geometry.js';
 import { MatLib, baseMaterials } from '../../lib/materials.js';
-import { Kit, foldSiblings, mergeStaticRigid } from '../../lib/mesh.js';
+import { Kit, foldSiblings, mergeStaticRigid, prep } from '../../lib/mesh.js';
+import { computeIrisSpec, createIrisDiaphragm, createLeafShutter, createClearFrontGlass, buildSteppedBaffleTube } from '../../lib/diaphragm.js';
 import { buildHead, buildTripod } from '../../lib/rig.js';
 import { DEG, FONT, T, TAU, easeInOut, lerp } from '../../lib/util.js';
 import { lensOpticsFor, filterOpticsFor } from '../../optics.js';
@@ -1017,7 +1018,7 @@ function buildLens(lib, lens, hov, mats) {
   const k = new Kit();
   const black = lib.get('lensBlack'), chrome = lib.get('chrome'), steel = lib.get('steel'), brass = lib.get('brass'), flock = lib.get('flock'), anod = lib.get('anod');
   const stripeMat = lib.prepare(new THREE.MeshPhysicalMaterial({ name: `lfStripe_${lens.id}`, color: def.stripe || 0xc8ccd2, metalness: 0.45, roughness: 0.28, clearcoat: 0.4 }), {});
-  const rearGlassMat = lib.prepare(new THREE.MeshPhysicalMaterial({ name: `lfRearGlass_${lens.id}`, color: 0x0b1c1a, metalness: 0.14, roughness: 0.03, clearcoat: 1.0, clearcoatRoughness: 0.02, specularIntensity: 1.0, envMapIntensity: 1.75 }), {});
+  const rearGlassMat = createClearFrontGlass(lib, { name: 'lfRearGlass', color: 0x05090a, opacity: 0.11, iridescence: 0.78 });
   // ── 3D Copal Rear Mounting Threads + 6-Slot Spanner Retaining Jam-Nut + Sculpted Rear Optical Cell (Law #27!) ──
   const rThr = Rr.neckR || 17.5;
   // Machined finely grooved M39/M42 brass Copal shutter threads clearly visible emerging past the 6-slot steel jam-nut (z = 0..+6.4 mm)!
@@ -1047,17 +1048,16 @@ function buildLens(lib, lens, hov, mats) {
       [rThr - 0.4, 6.1], [Rr.r, 6.5, 0.4], [Rr.r, Rr.z - 1.4, 0.35], [Rr.r - 1.8, Rr.z], [rRearGlass + 0.8, Rr.z - 1.0], [rRearGlass, Rr.z - 0.7],
     ], { segs: 72, crease: 28 }), black);
   }
-  // Rear cell retaining ring + outward-facing (+Z, r descending -> nz > 0!) glossy multi-coated convex rear meniscus glass
+  // Rear cell retaining ring + clear multicoated convex rear meniscus glass (light passes straight through open Copal shutter!)
   k.add(revolve([[rRearGlass + 0.7, Rr.z - 0.6], [rRearGlass, Rr.z - 0.3], [rRearGlass, Rr.z - 1.2]], { segs: 48 }), anod);
-  k.add(new THREE.CircleGeometry(rRearGlass + 0.1, 48), flock, T(0, 0, Rr.z - 1.8));
-  k.add(revolve([[rRearGlass, Rr.z - 0.65], [rRearGlass * 0.74, Rr.z + 0.1], [rRearGlass * 0.38, Rr.z + 0.8], [0, Rr.z + 1.15]], { segs: 48 }), rearGlassMat);
+  const rearGlassMesh = new THREE.Mesh(prep(revolve([[rRearGlass, Rr.z - 0.65], [rRearGlass * 0.74, Rr.z + 0.1], [rRearGlass * 0.38, Rr.z + 0.8], [0, Rr.z + 1.15]], { segs: 48 })), rearGlassMat);
+  rearGlassMesh.renderOrder = 2;
+  rearGlassMesh.userData.noShadow = true;
+  group.add(rearGlassMesh);
 
-  // the glass: what is seen in it is traced (lib/materials.js LENS_GLASS_GLSL): the cells' coatings, the baffles, the
-  // iris and, closed unless it is held open or firing, the shutter's five blades
+  // Clear multicoated front glass revealing REAL 3D 5-blade Copal leaf shutter + 7/9-blade iris diaphragm inside!
   const oSpec = lensOpticsFor(lens);
-  const lensGlassU = { optics: { value: new THREE.Vector4(11, 0, Fr.bore, 14) }, state: { value: new THREE.Vector4(0, oSpec.pupilMag ?? 1.0, 0, 0) },
-    ghostA: { value: new THREE.Color(...(lens.ghostTintA || oSpec.ghostTintA || [0.5, 0.42, 0.3])) }, ghostB: { value: new THREE.Color(...(lens.ghostTintB || oSpec.ghostTintB || [0.3, 0.48, 0.42])) } };
-  const glassMat = lib.prepare(lib.base.glass.clone(), { lensGlass: lensGlassU, clip: false });
+  const glassMat = createClearFrontGlass(lib, { name: 'lfFrontGlass', color: 0x05080a, opacity: 0.11, iridescence: 0.78 });
   // the shutter's body; its speed ring (knurled rim segs=6*72=432!, a red ▼ on its front edge)
   const at = (phi, r, z) => T(Math.sin(phi) * r, Math.cos(phi) * r, z, 0, 0, -phi);
   k.add(revolve([[S.r - 0.4, S.ringZ[0]], [S.r, S.ringZ[0] + 0.4, 0.4], [S.r, 0, 0.3]], { segs: 72 }), black);
@@ -1110,8 +1110,31 @@ function buildLens(lib, lens, hov, mats) {
   // Machined front-element retaining ring + dual opposing spanner-wrench notches (180° apart!)
   k.add(revolve([[Fr.bore + 0.5, Fr.glassZ - 0.75], [Fr.bore - 0.55, Fr.glassZ - 0.75, 0.15], [Fr.bore - 0.55, Fr.glassZ]], { segs: 72 }), black);
   [-1, 1].forEach((s) => k.add(rbox(1.6, 0.65, 0.5, 0.08, 1), flock, T(s * (Fr.bore + 0.1), 0, Fr.glassZ - 0.85)));
+  // Hollow stepped anti-reflection inner optical barrel from front glass down to the Copal shutter & iris chamber
+  const rCopalOut = Math.min(S.r - 1.6, Math.max(Fr.bore + 2.0, neckR - 0.8));
+  const irisBlades = lens.shutter === 'copal-1' ? 9 : 7;
+  const irisSpec = computeIrisSpec({ blades: irisBlades, rOut: rCopalOut, glassR: Math.min(Fr.bore, rCopalOut * 0.75), rMinScale: 0.055 });
+  k.add(buildSteppedBaffleTube(Fr.bore - 0.1, Fr.glassZ, irisSpec.rFixed + 0.35, def.iris - 1.2, 4), flock);
+  k.add(buildSteppedBaffleTube(irisSpec.rFixed + 0.35, def.iris + 1.4, rRearGlass - 0.1, Rr.z - 1.0, 3), flock);
+  // Real 3D 5-blade Copal leaf shutter (CLOSED when Press-Focus is off; opens on Press-Focus or fire()!) + 7/9-blade iris diaphragm!
+  const copalShutter = createLeafShutter(lib, { rOut: rCopalOut, matName: 'copalLeafBlade', color: 0x262a30, metalness: 0.46, roughness: 0.38 });
+  const zShutter = def.iris - 0.85;
+  copalShutter.inst.position.z = zShutter;
+  group.add(copalShutter.inst);
+  const iris = createIrisDiaphragm(lib, irisSpec, { matName: 'copalIrisBlade', color: 0x5c646f, metalness: 0.48, roughness: 0.38, intMat: flock });
+  const { group: irisGroup, fixedIris, irisInst, jawInst } = iris;
+  const zIris = def.iris + 0.85;
+  irisGroup.position.z = zIris;
+  group.add(irisGroup);
+  const syncOptics = (rIris, leafK, isCut = false) => {
+    copalShutter.sync(leafK);
+    iris.sync(rIris, isCut);
+  };
+  syncOptics(irisSpec.rMax, 1, false);
   // Standalone local-origin front meniscus glass mesh (Law #17!)
-  const glassMesh = new THREE.Mesh(revolve([[0, Fr.glassZ - 1.8], [Fr.bore * 0.38, Fr.glassZ - 1.55], [Fr.bore * 0.72, Fr.glassZ - 0.95], [Fr.bore + 0.1, Fr.glassZ]], { segs: 64 }), glassMat);
+  const glassMesh = new THREE.Mesh(prep(revolve([[0, Fr.glassZ - 1.8], [Fr.bore * 0.38, Fr.glassZ - 1.55], [Fr.bore * 0.72, Fr.glassZ - 0.95], [Fr.bore + 0.1, Fr.glassZ]], { segs: 64 })), glassMat);
+  glassMesh.renderOrder = 2;
+  glassMesh.userData.noShadow = true;
   group.add(glassMesh);
   // the cocking lever: a black arm out past the ring, a knurled chrome disc (segs = 8*30 = 240!) on its end facing forward
   const cock = new THREE.Group(); group.add(cock);
@@ -1185,8 +1208,6 @@ function buildLens(lib, lens, hov, mats) {
       ik.add(revolve(prof, { segs: 48 }), gInner);
       ik.add(revolve([[r, z0 - th * 0.5 + sag1], [r + 0.7, z0 - th * 0.5 + sag1], [r + 0.7, z0 + th * 0.5 + sag2], [r, z0 + th * 0.5 + sag2]], { segs: 48 }), rimBlack);
     });
-    // Copal leaf-shutter & iris diaphragm ring at def.iris
-    ik.add(revolve([[Fr.bore * 0.4, def.iris - 0.6], [S.r - 1.2, def.iris - 0.6], [S.r - 1.2, def.iris + 0.6], [Fr.bore * 0.4, def.iris + 0.6]], { segs: 48 }), lib.get('blade'));
     ik.build(inner);
     return true;
   };
@@ -1217,7 +1238,7 @@ function buildLens(lib, lens, hov, mats) {
     filterMeshes.push(...flk.build(filterGroup, 'filter'));
     return true;
   };
-  return { group, lens, def, L: def.L, lensGlassU, glassMesh, pupilMag: oSpec.pupilMag ?? 1.0, speed, apLever, cock, rel, pf, inner, hoodGroup, filterGroup, filterMat, ensureInner, ensureHood, ensureFilter, speedMeshes, apertureMeshes, releaseMeshes, pressMeshes, filterMeshes };
+  return { group, lens, def, L: def.L, irisSpec, irisGroup, irisInst, fixedIris, jawInst, shutterInst: copalShutter.inst, syncOptics, zIris, zShutter, glassMesh, rearGlassMesh, pupilMag: oSpec.pupilMag ?? 1.0, focalMm: oSpec.focalCalMm || lens.focalLength || 150, speed, apLever, cock, rel, pf, inner, hoodGroup, filterGroup, filterMat, ensureInner, ensureHood, ensureFilter, speedMeshes, apertureMeshes, releaseMeshes, pressMeshes, filterMeshes };
 }
 
 // ───────── The camera ─────────
@@ -1305,7 +1326,7 @@ export function createCameraIntrepid({ lens }) {
   root.add(blob);
 
   const lensLists = (Lx) => [Lx.speedMeshes, Lx.apertureMeshes, Lx.releaseMeshes, Lx.pressMeshes, Lx.filterMeshes];
-  const lensDyn = (Lx) => [Lx.group, Lx.speed, Lx.apLever, Lx.cock, Lx.rel, Lx.pf, Lx.inner, Lx.hoodGroup, Lx.filterGroup, Lx.glassMesh].filter(Boolean);
+  const lensDyn = (Lx) => [Lx.group, Lx.speed, Lx.apLever, Lx.cock, Lx.rel, Lx.pf, Lx.inner, Lx.hoodGroup, Lx.filterGroup, Lx.glassMesh, Lx.rearGlassMesh, Lx.irisGroup, Lx.irisInst, Lx.fixedIris, Lx.jawInst, Lx.shutterInst].filter(Boolean);
   const camDyn = [
     mm, baseP.group, fFrame, carriage.group, carriage.wheel,
     front.group, front.swingG, front.shiftG, front.riseG, front.tiltG, front.wing, front.boardG, front.lensMount,
@@ -1561,7 +1582,13 @@ export function createCameraIntrepid({ lens }) {
     }
     mats.shade.gwUnder.value = st.under < 0.001 ? 0 : st.under;
     rear.backRot.getWorldPosition(mats.shade.gwGlassPos.value);
-    const blades = Math.max(st.pf, st.firing) * (1 - st.lensOff);
+    const leafOpen = Math.max(st.pf, st.firing);
+    const blades = leafOpen * (1 - st.lensOff);
+    {
+      const stops = L.lens.apertureStops, N = stops[0] * (stops[stops.length - 1] / stops[0]) ** st.ap;
+      const rIris = L.irisSpec.rMax * (stops[0] / Math.max(stops[0], N));
+      L.syncOptics(rIris, leafOpen, cutaway);
+    }
     rear.glassK.value = st.lumGlass * blades;
     loupe.discU.uLoupeK.value = st.lumLoupe * blades;
   }
@@ -1869,10 +1896,10 @@ export function createCameraIntrepid({ lens }) {
       await animate('press', 1, 0.08, (k) => k);
       onSound('release');
       onSound('leafOpen');
-      st.firing = 1;
+      await animate('firing', 1, 0.018, (k) => k);
       const expose = onExpose();
       await Promise.all([hold(Math.max(seconds * 1000, 90)), expose]);
-      st.firing = 0;
+      await animate('firing', 0, 0.018, (k) => k);
       onSound('leafClose');
       await animate('cocked', 0, 0.06, (k) => k);
       animate('press', 0, 0.16);
@@ -1880,6 +1907,35 @@ export function createCameraIntrepid({ lens }) {
       if (cut) setCutaway(false);
     },
     setCutaway(on, side = 1) { api.cutSide = side; setCutaway(on); },
+    opticalState() {
+      const stops = L.lens.apertureStops, N = stops[0] * (stops[stops.length - 1] / stops[0]) ** st.ap;
+      const leafOpen = Math.max(st.pf, st.firing);
+      const lensOn = st.lensOff < 0.05 && st.lensOut < 0.05 && st.explodeK < 0.05;
+      const holderIn = st.hK > 0.5;
+      const slideOut = !holderIn || st.sK[st.side] > 0.5;
+      return {
+        shutterKind: 'leaf',
+        blades: L.irisSpec.n,
+        shutterBlades: 5,
+        fNumberSelected: +N.toFixed(2),
+        fNumberEffective: +N.toFixed(2),
+        apertureMm: +(L.focalMm / N).toFixed(2),
+        irisRadiusMm: +(L.irisSpec.rMax * (stops[0] / Math.max(stops[0], N))).toFixed(2),
+        shutterOpen: +leafOpen.toFixed(4),
+        pressFocusOpen: st.pf > 0.5,
+        mirrorUp: 1,
+        darkSlideOut: slideOut,
+        lightReachesFilm: lensOn && holderIn && slideOut ? +leafOpen.toFixed(4) : 0,
+        lightReachesFinder: lensOn && !holderIn ? +leafOpen.toFixed(4) : 0,
+        zIrisMm: +(-(flangeOf(L.lens) + st.ext) + L.zIris).toFixed(2),
+        zShutterMm: +(-(flangeOf(L.lens) + st.ext) + L.zShutter).toFixed(2),
+        zFilmMm: 0,
+        zFlangeMm: +(-(flangeOf(L.lens) + st.ext)).toFixed(2),
+        focalMm: L.focalMm,
+        pupilMag: L.pupilMag,
+        focusExtMm: +st.ext.toFixed(3),
+      };
+    },
     update(dt, view) {
       dt *= api.timeScale;
       for (let i = tweens.length - 1; i >= 0; i--) {
@@ -1928,10 +1984,6 @@ export function createCameraIntrepid({ lens }) {
       // the glass's light: the lens's picture only while the blades are open (held open to focus, or firing)
       // (and the lens on: off, there is no picture)
       const blades = Math.max(st.pf, st.firing) * (1 - st.lensOff);
-      { const stops = L.lens.apertureStops, N = stops[0] * (stops[stops.length - 1] / stops[0]) ** st.ap;
-        const rIris = Math.min(L.def.front.bore - 0.4, (L.lens.focalLength || 150) / (2 * N));
-        L.lensGlassU.optics.value.set(rIris, Math.max(st.pf, st.firing), L.def.front.bore, 14);
-        L.lensGlassU.state.value.set((1 - Math.min(1, rIris / 11)) * 0.5, L.pupilMag, st.ext, Math.max(easeInOut(st.explodeK), st.lensOff)); }
       rear.glassK.value = st.lumGlass * blades;
       loupe.discU.uLoupeK.value = st.lumLoupe * blades;
       if (cutaway) {

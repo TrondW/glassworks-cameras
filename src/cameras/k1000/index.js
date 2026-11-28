@@ -9,6 +9,7 @@ import { INK, PAINT_BG } from '../../lib/engrave.js';
 import { addScrew, radialT, rbox, revolve, rrPath, slab } from '../../lib/geometry.js';
 import { MatLib, baseMaterials } from '../../lib/materials.js';
 import { Kit, fastMerge, mergeStaticRigid, prep } from '../../lib/mesh.js';
+import { createIrisDiaphragm, buildSteppedBaffleTube } from '../../lib/diaphragm.js';
 import { buildHead, buildTripod } from '../../lib/rig.js';
 import { beadBlastMaps, vulcaniteMaps } from '../../lib/textures.js';
 import { DEG, FONT, T, TAU, easeInOut, lerp } from '../../lib/util.js';
@@ -893,8 +894,7 @@ function buildBody(lib, hov) {
   };
 }
 
-// ───────── Physical 5/6-Blade Tangent-Polygon Iris Geometry (SMC Pentax-M Diaphragm) ─────────
-const _k1000IrisCache = new Map();
+// ───────── Physical 5/6-Blade Tangent-Polygon Iris Spec (SMC Pentax-M Diaphragm) ─────────
 function k1000IrisSpec(def) {
   const n = def.blades || 6;
   const rOut = def.rFront - 2.2;
@@ -905,78 +905,6 @@ function k1000IrisSpec(def) {
   const rPin = Math.min(rOut - 2.6, Math.max(rMax + 4.4, (rMax + rOut) * 0.58));
   const rMin = Math.max(0.85, rMax * 0.072);
   return { n, rPin, rOut, rPlateOut, rMin, rMax, rFixed };
-}
-
-function buildK1000LeafGeo(spec) {
-  const key = `${spec.n}|${spec.rPin.toFixed(2)}|${spec.rOut.toFixed(2)}|${spec.rMin.toFixed(2)}|${spec.rMax.toFixed(2)}`;
-  if (_k1000IrisCache.has(key)) return _k1000IrisCache.get(key);
-  const cols = 48;
-  const minChord = Math.sqrt(Math.max(1, spec.rPin * spec.rPin - spec.rMax * spec.rMax))
-    + Math.sqrt(Math.max(1, spec.rOut * spec.rOut - spec.rMax * spec.rMax));
-  const xMin = -(minChord - 0.9);
-  const xSpan = (1.3 - xMin);
-  const xs = Array.from({ length: cols }, (_, i) => xMin + (xSpan * i) / (cols - 1));
-  const y0s = xs.map(() => 0);
-  const yMaxBound = Math.max(8, spec.rOut * 0.56);
-  const y1s = xs.map(() => yMaxBound);
-  for (let k = 0; k <= 28; k++) {
-    const r = spec.rMin + ((spec.rMax - spec.rMin) * k) / 28;
-    const b = -Math.asin(Math.min(0.96, r / spec.rPin));
-    const c = Math.cos(b), s = Math.sin(b);
-    for (let j = 0; j < cols; j++) {
-      const x = xs[j];
-      for (let y = 0; y <= yMaxBound; y += 0.12) {
-        if (Math.hypot(spec.rPin + c * x - s * y, s * x + c * y) > spec.rOut) {
-          y1s[j] = Math.min(y1s[j], Math.max(0, y - 0.12));
-          break;
-        }
-      }
-    }
-  }
-  const wB = 0.30, tipThresh = 0.38;
-  const vCount = cols * 4;
-  const pos = new Float32Array(vCount * 3);
-  const nor = new Float32Array(vCount * 3);
-  const uv = new Float32Array(vCount * 2);
-  const wr = new Float32Array(vCount);
-  for (let j = 0; j < cols; j++) {
-    const x = xs[j], lo = y0s[j], hi = y1s[j], h = hi - lo, mid = (lo + hi) * 0.5;
-    const tipW = h < tipThresh ? 1 : 0;
-    const rowsY = [lo, Math.min(mid - 0.01, lo + wB), Math.max(mid + 0.01, hi - wB), hi];
-    const rowsW = [1, tipW, tipW, 1];
-    for (let r = 0; r < 4; r++) {
-      const vi = j * 4 + r;
-      pos[vi * 3] = x; pos[vi * 3 + 1] = rowsY[r]; pos[vi * 3 + 2] = 0;
-      nor[vi * 3] = 0; nor[vi * 3 + 1] = 0; nor[vi * 3 + 2] = -1;
-      uv[vi * 2] = (x - xMin) / Math.max(1e-3, xSpan); uv[vi * 2 + 1] = rowsY[r] / Math.max(1, yMaxBound);
-      wr[vi] = rowsW[r];
-    }
-  }
-  const idx = [];
-  for (let j = 0; j < cols - 1; j++) {
-    if (y1s[j] - y0s[j] <= 1e-3 && y1s[j + 1] - y0s[j + 1] <= 1e-3) continue;
-    for (let r = 0; r < 3; r++) {
-      const b0 = j * 4 + r, b1 = (j + 1) * 4 + r;
-      idx.push(b0, b1 + 1, b1, b0, b0 + 1, b1 + 1);
-    }
-  }
-  const leaf = new THREE.BufferGeometry();
-  leaf.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  leaf.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  leaf.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  leaf.setAttribute('wear', new THREE.BufferAttribute(wr, 1));
-  leaf.setIndex(idx);
-  leaf.applyMatrix4(new THREE.Matrix4().makeRotationX(0.055));
-  prep(leaf);
-  const pin = prep(new THREE.CylinderGeometry(0.6, 0.6, 0.65, 10).rotateX(Math.PI / 2));
-  pin.attributes.wear.array.fill(0.35);
-  const bladeGeo = fastMerge([leaf, pin]);
-  bladeGeo.computeBoundingSphere();
-  const fixedGeo = prep(new THREE.RingGeometry(spec.rFixed, spec.rPlateOut, 64, 1));
-  fixedGeo.rotateY(Math.PI);
-  const pair = { bladeGeo, fixedGeo };
-  _k1000IrisCache.set(key, pair);
-  return pair;
 }
 
 // ───────── SMC Pentax-M Compact K-Mount Lens Builder ─────────
@@ -1127,71 +1055,30 @@ function buildLens(lib, lens, hov) {
   const zIrisFront = zGlassEdge + 2.6;
   const zIrisCut = lerp(zOptStart, zOptEnd, def.zfIris ?? 0.50);
   const zTrapBack = Math.min(-4.6, zIrisFront + 9.0);
-  const tubeSteps = 4;
-  const tubeProf = [[def.glassR + 0.1, zGlassEdge]];
-  for (let i = 0; i < tubeSteps; i++) {
-    const za = lerp(zGlassEdge, zTrapBack, i / tubeSteps), zb = lerp(zGlassEdge, zTrapBack, (i + 1) / tubeSteps);
-    const ra = lerp(def.glassR + 0.25, irisSpec.rFixed + 0.4, (i + 1) / tubeSteps);
-    tubeProf.push([ra, za + 0.25], [ra - 0.32, zb - 0.15], [ra, zb]);
-  }
-  ek.add(revolve(tubeProf, { segs: 64, crease: 20 }), intBlk);
+  ek.add(buildSteppedBaffleTube(def.glassR + 0.1, zGlassEdge, irisSpec.rFixed + 0.4, zTrapBack, 4), intBlk);
   ek.build(ext);
 
-  // Real 3D Animated 5/6-Blade Gunmetal Spring-Steel Iris Diaphragm (visible through clear SMC glass AND clipped cleanly in cutaway!)
-  let irisBladeMat = lib.cache.get('k1000IrisBlade|1');
-  if (!irisBladeMat) {
-    irisBladeMat = lib.prepare(new THREE.MeshStandardMaterial({
-      name: 'k1000IrisBlade', color: 0x737b86, metalness: 0.52, roughness: 0.36, envMapIntensity: 1.55, side: THREE.DoubleSide,
-    }), { clip: true, wear: 'irisBlade' });
-    lib.cache.set('k1000IrisBlade|1', irisBladeMat);
-  }
-  const { bladeGeo, fixedGeo } = buildK1000LeafGeo(irisSpec);
-  const irisGroup = new THREE.Group();
+  // Real 3D Animated 5/6-Blade Gunmetal Spring-Steel Iris Diaphragm + cutaway section jaws (visible through clear SMC glass AND in cutaway!)
+  const iris = createIrisDiaphragm(lib, { ...irisSpec, thick: 1.8 }, {
+    matName: 'k1000IrisBlade', color: 0x737b86, metalness: 0.52, roughness: 0.36, envMapIntensity: 1.55, intMat: intBlk,
+  });
+  const { group: irisGroup, fixedIris, irisInst, jawInst } = iris;
   irisGroup.position.z = zIrisFront;
   ext.add(irisGroup);
-  const fixedIris = new THREE.Mesh(fixedGeo, intBlk);
-  fixedIris.position.z = -0.65;
-  fixedIris.userData.noReceive = true;
-  fixedIris.userData.noShadow = true;
-  irisGroup.add(fixedIris);
-  const irisInst = new THREE.InstancedMesh(bladeGeo, irisBladeMat, irisSpec.n);
-  // Every blade vertex is clipped strictly inside rOut; provide exact analytical bounds so InstancedMesh AABB never inflates camera height
-  irisInst.boundingBox = new THREE.Box3(
-    new THREE.Vector3(-irisSpec.rOut, -irisSpec.rOut, -1.5),
-    new THREE.Vector3(irisSpec.rOut, irisSpec.rOut, 1.5),
-  );
-  irisInst.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), irisSpec.rOut + 1.5);
-  irisInst.userData.noReceive = true;
-  irisInst.userData.noShadow = true;
-  irisGroup.add(irisInst);
 
-  // Dead-flat black optical chamber backing disc behind the iris (hidden automatically in cutaway so rear glass & mirror show cleanly)
+  // Dead-flat black optical chamber backing disc behind the iris (hidden automatically in cutaway or straight-through lightPath simulation!)
   const rearTrap = new THREE.Mesh(prep(new THREE.CircleGeometry(irisSpec.rPlateOut + 0.2, 48)), intBlk);
   rearTrap.rotation.y = Math.PI;
   rearTrap.position.z = zTrapBack;
   rearTrap.userData.noShadow = true;
   ext.add(rearTrap);
 
-  const _irisObj = new THREE.Object3D();
-  let lastIrisR = -1;
-  const syncIris = (rIris, isCut = false) => {
+  const syncIris = (rIris, isCut = false, lightPath = false) => {
     irisGroup.position.z = isCut ? zIrisCut : zIrisFront;
-    rearTrap.visible = !isCut;
-    const r = THREE.MathUtils.clamp(rIris, irisSpec.rMin, irisSpec.rMax);
-    if (Math.abs(r - lastIrisR) < 1e-4) return;
-    lastIrisR = r;
-    const turn = Math.asin(Math.min(0.96, r / irisSpec.rPin));
-    for (let i = 0; i < irisSpec.n; i++) {
-      const a = (i / irisSpec.n) * TAU;
-      _irisObj.position.set(irisSpec.rPin * Math.cos(a), irisSpec.rPin * Math.sin(a), (i - (irisSpec.n - 1) / 2) * 0.16);
-      _irisObj.rotation.set(0, 0, a - turn);
-      _irisObj.scale.set(1, 1, 1);
-      _irisObj.updateMatrix();
-      irisInst.setMatrixAt(i, _irisObj.matrix);
-    }
-    irisInst.instanceMatrix.needsUpdate = true;
+    rearTrap.visible = !isCut && !lightPath;
+    iris.sync(rIris, isCut);
   };
-  syncIris(irisSpec.rMax, false);
+  syncIris(irisSpec.rMax, false, false);
 
   // Standalone local-origin SMC multicoated curved front glass dome (Law #17)
   const glassMesh = new THREE.Mesh(prep(revolve([[0, zGlassEdge - 1.5], [def.glassR * 0.45, zGlassEdge - 1.1], [def.glassR * 0.8, zGlassEdge - 0.5], [def.glassR + 0.2, zGlassEdge]], { segs: 64 })), glassMat);
@@ -1298,7 +1185,7 @@ function buildLens(lib, lens, hov) {
     return true;
   };
 
-  return { group, lens, def, L, irisSpec, irisGroup, irisInst, fixedIris, rearTrap, syncIris, glassMesh, rearMount, pupilMag: oSpec.pupilMag ?? 1.0, focalMm: oSpec.focalCalMm || lens.focalLength || 50, focus, aperture, ext, inner, hoodGroup, filterGroup, filterMat, ensureRear, ensureInner, ensureHood, ensureFilter, focusMeshes, apertureMeshes, filterMeshes };
+  return { group, lens, def, L, irisSpec, irisGroup, irisInst, fixedIris, jawInst, rearTrap, syncIris, zIrisFront, zIrisCut, glassMesh, rearMount, pupilMag: oSpec.pupilMag ?? 1.0, focalMm: oSpec.focalCalMm || lens.focalLength || 50, focus, aperture, ext, inner, hoodGroup, filterGroup, filterMat, ensureRear, ensureInner, ensureHood, ensureFilter, focusMeshes, apertureMeshes, filterMeshes };
 }
 
 // ───────── The Camera Factory ─────────
@@ -1356,7 +1243,7 @@ export function createCameraK1000({ lens }) {
   root.add(blob);
 
   const lensLists = (Lx) => [Lx.focusMeshes, Lx.apertureMeshes, Lx.filterMeshes];
-  const lensDyn = (Lx) => [Lx.group, Lx.focus, Lx.ext, Lx.aperture, Lx.inner, Lx.hoodGroup, Lx.filterGroup, Lx.glassMesh, Lx.rearMount, Lx.irisGroup, Lx.irisInst, Lx.fixedIris, Lx.rearTrap].filter(Boolean);
+  const lensDyn = (Lx) => [Lx.group, Lx.focus, Lx.ext, Lx.aperture, Lx.inner, Lx.hoodGroup, Lx.filterGroup, Lx.glassMesh, Lx.rearMount, Lx.irisGroup, Lx.irisInst, Lx.fixedIris, Lx.jawInst, Lx.rearTrap].filter(Boolean);
   const camDyn = [
     mm, body.core, body.top, body.bottom, body.door, body.mirrorPivot,
     body.curtain1Cloth, body.curtain1Lath, body.curtain2Cloth, body.curtain2Lath, body.stopDownLever,
@@ -1453,7 +1340,7 @@ export function createCameraK1000({ lens }) {
     const stopK = Math.max(0, Math.min(1, Math.max(st.dofK, st.stopDown || 0, st.mirrorK, e > 0.05 || st.lensOut > 0.05 ? 1 : 0)));
     const apN = apStops[0] * Math.pow(apWork / apStops[0], stopK);
     const rIris = L.irisSpec.rMax * (apStops[0] / apN);
-    L.syncIris(rIris, cutaway);
+    L.syncIris(rIris, cutaway, Boolean(st.lightPath));
     body.stopDownLever.position.y = -4.5 - 4.8 * Math.max(st.stopDown || 0, st.mirrorK);
     // Cocked indicator dot: bright red only when shutter is cocked (K1000 manual!)
     body.cockedMat.color.setHex(st.cocked > 0.5 ? 0xd93826 : 0x161719);
@@ -1640,6 +1527,37 @@ export function createCameraK1000({ lens }) {
       if (cut) setCutaway(false);
     },
     setCutaway(on, side = 1) { api.cutSide = side; setCutaway(on); },
+    opticalState() {
+      const apStops = L.lens.apertureStops;
+      const apIdx = Math.min(apStops.length - 1, Math.max(0, -st.apRot / AP_STEP));
+      const i0 = Math.min(apStops.length - 2, Math.floor(apIdx));
+      const apWork = apStops[i0] * Math.pow(apStops[i0 + 1] / apStops[i0], apIdx - i0);
+      const stopK = Math.max(0, Math.min(1, Math.max(st.dofK, st.stopDown || 0, st.mirrorK, st.explodeK > 0.05 || st.lensOut > 0.05 ? 1 : 0)));
+      const apN = apStops[0] * Math.pow(apWork / apStops[0], stopK);
+      const k1 = Math.max(0, Math.min(1, st.curtain1)), k2 = Math.max(0, Math.min(1, st.curtain2));
+      const slit = Math.max(0, k1 - k2);
+      const lensOn = st.lensOut < 0.05 && st.explodeK < 0.05;
+      return {
+        shutterKind: 'focal-plane',
+        blades: L.irisSpec.n,
+        fNumberSelected: +apWork.toFixed(2),
+        fNumberEffective: +apN.toFixed(2),
+        apertureMm: +(L.focalMm / apN).toFixed(2),
+        irisRadiusMm: +(L.irisSpec.rMax * (apStops[0] / apN)).toFixed(2),
+        shutterOpen: +slit.toFixed(4),
+        slitMm: [+(lerp(-18.5, 18.5, k1)).toFixed(2), +(lerp(-18.5, 18.5, k2)).toFixed(2)],
+        mirrorUp: +st.mirrorK.toFixed(4),
+        lightReachesFilm: lensOn ? +(slit * st.mirrorK).toFixed(4) : 0,
+        lightReachesFinder: lensOn ? +(1 - st.mirrorK).toFixed(4) : 0,
+        zIrisMm: +(DIM.flange + L.zIrisCut - st.ext).toFixed(2),
+        zShutterMm: -1.6,
+        zFilmMm: 0,
+        zFlangeMm: DIM.flange,
+        focalMm: L.focalMm,
+        pupilMag: L.pupilMag,
+        focusExtMm: +st.ext.toFixed(3),
+      };
+    },
     labelAt(obj) {
       let cur = obj;
       while (cur) {
